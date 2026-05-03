@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import pickle
+from datetime import datetime, timezone
 from pathlib import Path
 
 import duckdb
@@ -150,8 +152,24 @@ def train_final(
     except AttributeError:
         top5 = []
 
+    all_importances = dict(zip(FEATURE_COLS, model.feature_importances_)) if hasattr(model, "feature_importances_") else {}
+
+    metrics = {
+        "symbol": symbol,
+        "horizon": horizon,
+        "model": model_name,
+        "train_rows": len(df),
+        "feature_importances": all_importances,
+        "top5_features": top5,
+        "trained_at": datetime.now(timezone.utc).isoformat(),
+    }
+    metrics_path = models_dir / f"{symbol}_h{horizon}_metrics.json"
+    with open(metrics_path, "w") as f:
+        json.dump(metrics, f, indent=2)
+
     return {
         "model_path": str(model_path),
+        "metrics_path": str(metrics_path),
         "model": model_name,
         "train_rows": len(df),
         "top5_features": top5,
@@ -184,6 +202,20 @@ def train_and_eval(con: duckdb.DuckDBPyConnection, symbol: str, horizon: int, mo
     # Train final model on all data
     print(f"  [train] Training final model ({symbol}, h={horizon})...")
     final = train_final(df, symbol=symbol, horizon=horizon, models_dir=models_dir)
+
+    # Persist walk-forward results into metrics JSON
+    metrics_path = models_dir / f"{symbol}_h{horizon}_metrics.json"
+    if metrics_path.exists():
+        with open(metrics_path) as f:
+            saved = json.load(f)
+        saved.update({
+            "mean_rmse": mean_rmse,
+            "mean_dir_acc": mean_dir_acc,
+            "walk_forward_folds": fold_results,
+            "total_rows": len(df),
+        })
+        with open(metrics_path, "w") as f:
+            json.dump(saved, f, indent=2)
 
     return {
         "symbol": symbol,
