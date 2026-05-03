@@ -18,6 +18,7 @@ import requests
 from market_mvp.db import DB, init_db
 
 EDGAR_API = "https://data.sec.gov"
+EDGAR_WWW = "https://www.sec.gov"
 # SEC requires a descriptive User-Agent with contact info
 _HEADERS = {"User-Agent": "market_mvp/1.0 rakesh@rakeshpillai.com"}
 
@@ -61,7 +62,7 @@ def lookup_cik(ticker: str, con=None) -> str | None:
         if row:
             return row[0]
 
-    tickers_data = _get(f"{EDGAR_API}/files/company_tickers.json")
+    tickers_data = _get(f"{EDGAR_WWW}/files/company_tickers.json")
     for entry in tickers_data.values():
         if entry.get("ticker", "").upper() == ticker.upper():
             cik = str(entry["cik_str"]).zfill(10)
