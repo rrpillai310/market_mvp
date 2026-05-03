@@ -118,6 +118,12 @@ This starts a local server at `http://localhost:8501`.
 
 ---
 
+## Important: pipeline and dashboard can't run at the same time
+
+DuckDB only allows one writer at a time. Stop Streamlit (Ctrl+C) before running the pipeline, then restart it after.
+
+---
+
 ## 7. Run tests
 
 ```bash

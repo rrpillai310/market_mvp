@@ -149,6 +149,10 @@ Read CLAUDE.md first for architecture context. This file covers agent-specific r
   are premium-only. Price data comes from yfinance; options will come from CBOE.
 - Do not hardcode paths assuming the DB is inside the repo. The DB and models live one
   level above: `Path(__file__).parent.parent / "data"` and `/ "models"`.
+- Do not run the pipeline while Streamlit is running — DuckDB allows only one writer.
+  Stop Streamlit (Ctrl+C) first, run the pipeline, then restart Streamlit.
+- Do not use CSS class selectors to scrape sites that change their HTML frequently.
+  Match by URL pattern (regex on href) instead — URL schemes change far less often.
 - Always set `PYTHONPATH=/Users/rakeshpillai` when running Streamlit or the pipeline from
   a shell that hasn't sourced `~/.zshrc`.
 

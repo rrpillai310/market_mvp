@@ -150,6 +150,10 @@ Earnings: `eps_surprise_pct`, `rev_surprise_pct`, `days_to_earnings`
 Fed: `fed_hawkish_score`, `fed_net_score`, `fed_days_since`
 Social: `stocktwits_bull_ratio`, `reddit_sentiment`, `social_volume_ratio`
 
+## DuckDB concurrency
+
+DuckDB allows only **one writer at a time**. The pipeline opens the DB in read-write mode; Streamlit opens it read-only. This works fine as long as you don't try to run the pipeline while Streamlit is open — doing so causes a lock error. Always stop Streamlit (Ctrl+C) before running the pipeline, then restart it after.
+
 ## Code conventions
 
 - All modules are importable as `market_mvp.<module>` (run from parent dir).
