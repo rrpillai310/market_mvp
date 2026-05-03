@@ -124,6 +124,19 @@ EDGAR and Fed keyword scoring work fully offline.
 | `social_sentiment_daily` | symbol, date, source | StockTwits + Reddit |
 | `features_daily` | symbol, date, horizon | All features + forward return label |
 
+## Data sources
+
+| Source | What | Free? | Key needed? |
+|---|---|---|---|
+| yfinance | Daily OHLCV + adjusted close | Yes | No |
+| Alpha Vantage | News sentiment | Yes (25 req/day) | Yes |
+| SEC EDGAR | EPS/revenue (top 100 holdings per ETF) | Yes | No |
+| CBOE | Put/call ratio (planned) | Yes | No |
+| federalreserve.gov | FOMC statements + minutes | Yes | No |
+| StockTwits | Bull/bear ratio | Yes | No |
+| Reddit (PRAW) | Sentiment | Yes | Yes (registration required) |
+| Ollama (DGX Spark) | LLM extraction + Fed analysis | Yes (self-hosted) | No |
+
 ## Feature columns (21 total in FEATURE_COLS)
 
 Options: `pcr`, `pcr_chg_5`, `voi`, `voi_chg_5`
@@ -150,17 +163,17 @@ Social: `stocktwits_bull_ratio`, `reddit_sentiment`, `social_volume_ratio`
 
 ## Streamlit UI
 
-Launch from the repo root:
+Launch with PYTHONPATH set (required — package lives one level above the repo):
 ```bash
-cd /Users/rakeshpillai/market_mvp
-streamlit run app.py
+PYTHONPATH=/Users/rakeshpillai streamlit run /Users/rakeshpillai/market_mvp/app.py
 ```
 
 **Architecture:** `ui_data.py` is the single shared data layer imported by all pages.
 - Uses `@st.cache_resource` for the DB connection (one read-only connection per process)
 - Uses `@st.cache_data(ttl=300)` for query results (5-minute cache)
 - DB opened read-only: `duckdb.connect(str(_DB_PATH), read_only=True)`
-- Model path: `_MODELS_DIR / f"{symbol}_h{horizon}.pkl"`
+- DB path: `Path(__file__).parent.parent / "data" / "market_mvp.duckdb"` (one level above repo)
+- Model path: `_MODELS_DIR / f"{symbol}_h{horizon}.pkl"` (also one level above repo)
 - Metrics sidecar: `_MODELS_DIR / f"{symbol}_h{horizon}_metrics.json"`
 
 `predict()` in `ui_data.py` calls `load_model()` then scores the latest row from `features_daily`.

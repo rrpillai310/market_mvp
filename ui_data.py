@@ -13,8 +13,8 @@ import duckdb
 import pandas as pd
 import streamlit as st
 
-_DB_PATH = Path(__file__).parent / "data" / "market_mvp.duckdb"
-_MODELS_DIR = Path(__file__).parent / "models"
+_DB_PATH = Path(__file__).parent.parent / "data" / "market_mvp.duckdb"
+_MODELS_DIR = Path(__file__).parent.parent / "models"
 
 SYMBOLS = ["SPY", "QQQ"]
 HORIZONS = [5, 20]

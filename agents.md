@@ -145,6 +145,12 @@ Read CLAUDE.md first for architecture context. This file covers agent-specific r
   `st.plotly_chart()`. The `use_container_width` parameter is deprecated since 1.57.0.
 - Do not serialize LightGBM feature importances as `np.int32` to JSON — cast to `float()`
   before writing metrics JSON (numpy integers are not JSON-serializable).
+- Do not use `TIME_SERIES_DAILY_ADJUSTED` or options endpoints from Alpha Vantage — they
+  are premium-only. Price data comes from yfinance; options will come from CBOE.
+- Do not hardcode paths assuming the DB is inside the repo. The DB and models live one
+  level above: `Path(__file__).parent.parent / "data"` and `/ "models"`.
+- Always set `PYTHONPATH=/Users/rakeshpillai` when running Streamlit or the pipeline from
+  a shell that hasn't sourced `~/.zshrc`.
 
 ## Key invariants to preserve
 
