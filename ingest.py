@@ -224,33 +224,41 @@ def ingest_news_sentiment(con, av: AlphaVantageClient, symbol: str, *, limit: in
     con.unregister("tmp_news")
 
 
-def main():
-    raise SystemExit("Run `python3 -m market_mvp.ingest ...` (see market_mvp/README.md)")
-
-
-if __name__ == "__main__":
-    # Keep CLI entrypoint simple; parse args manually (no pandas Path).
-    ap = argparse.ArgumentParser()
+def _build_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(description="Ingest market data into DuckDB via Alpha Vantage.")
     ap.add_argument("--db", default="data/market_mvp.duckdb")
     ap.add_argument("--symbols", nargs="+", default=["SPY", "QQQ"])
     ap.add_argument("--skip-news", action="store_true")
     ap.add_argument("--skip-options", action="store_true")
     ap.add_argument("--news-limit", type=int, default=200)
     ap.add_argument("--throttle-secs", type=float, default=12.5)
-    ns = ap.parse_args()
+    return ap
 
-    db = DB(path=__import__("pathlib").Path(ns.db))
+
+def main():
+    ns = _build_parser().parse_args()
+    import pathlib
+    db = DB(path=pathlib.Path(ns.db))
     con = db.connect()
     init_db(con)
     av = AlphaVantageClient(throttle_secs=float(ns.throttle_secs))
 
     for sym in ns.symbols:
+        print(f"[ingest] {sym}: prices...")
         ingest_daily_adjusted(con, av, sym)
         if not ns.skip_options:
+            print(f"[ingest] {sym}: options PCR...")
             ingest_options_pcr(con, av, sym)
+            print(f"[ingest] {sym}: options VOI...")
             ingest_options_voi(con, av, sym)
         if not ns.skip_news:
+            print(f"[ingest] {sym}: news sentiment...")
             ingest_news_sentiment(con, av, sym, limit=ns.news_limit)
         con.execute("CHECKPOINT")
+        print(f"[ingest] {sym}: done.")
 
     con.close()
+
+
+if __name__ == "__main__":
+    main()

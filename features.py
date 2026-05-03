@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import argparse
-from datetime import timedelta
 
 import duckdb
+import numpy as np
 import pandas as pd
 
 from market_mvp.db import DB, init_db
@@ -13,9 +13,26 @@ def _roll_chg(s: pd.Series, n: int) -> pd.Series:
     return s - s.shift(n)
 
 
+def _rsi(returns: pd.Series, period: int = 14) -> pd.Series:
+    gain = returns.clip(lower=0)
+    loss = (-returns).clip(lower=0)
+    avg_gain = gain.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    # All-gain periods: avg_loss=0 → RSI=100 (not NaN)
+    rsi = pd.Series(
+        np.where(
+            avg_gain.isna(),
+            np.nan,
+            np.where(avg_loss == 0, 100.0, 100 - 100 / (1 + avg_gain / avg_loss)),
+        ),
+        index=returns.index,
+    )
+    return rsi
+
+
 def build_features(con: duckdb.DuckDBPyConnection, symbol: str, *, horizons: list[int]) -> None:
     prices = con.execute(
-        "SELECT date, adjusted_close, dividend_amount FROM prices_daily WHERE symbol=? ORDER BY date",
+        "SELECT date, open, high, low, close, adjusted_close, volume, dividend_amount FROM prices_daily WHERE symbol=? ORDER BY date",
         (symbol,),
     ).df()
     if prices.empty:
@@ -57,32 +74,66 @@ def build_features(con: duckdb.DuckDBPyConnection, symbol: str, *, horizons: lis
 
     df = prices.join(pcr, how="left").join(voi, how="left").join(news, how="left")
 
-    # Simple daily dividend event features (ETF friendly):
-    # "days until next ex-div" is hard without a calendar; approximate with "days since last dividend".
+    # --- Dividend features ---
     div = df["dividend_amount"].fillna(0.0)
-    last_div_date = div.where(div > 0).index.to_series().ffill()
-    df["div_ex_days"] = (pd.Series(df.index).astype("datetime64[ns]") - pd.Series(last_div_date).astype("datetime64[ns]")).dt.days.values
+    div_dates = pd.Series(pd.to_datetime(df.index), index=df.index)
+    div_dates = div_dates.where(div > 0)
+    last_div_date = div_dates.ffill()
+    current_dates = pd.to_datetime(pd.Series(df.index, index=df.index))
+    df["div_ex_days"] = (current_dates - last_div_date).dt.days.fillna(-1).astype(int)
     df["div_amount"] = div
 
-    # Options/news changes
+    # --- Options/news change features ---
     df["pcr"] = df["put_call_ratio"]
     df["voi"] = df["volume_oi_ratio"]
     df["pcr_chg_5"] = _roll_chg(df["pcr"], 5)
     df["voi_chg_5"] = _roll_chg(df["voi"], 5)
     df["news_sent_chg_5"] = _roll_chg(df["news_sent"], 5)
 
-    # Labels: forward returns on adjusted close (div/split adjusted).
+    # --- Price momentum ---
+    ac = df["adjusted_close"]
+    returns = ac.pct_change()
+    df["ret_1d"] = returns
+    df["ret_5d"] = ac / ac.shift(5) - 1
+    df["ret_20d"] = ac / ac.shift(20) - 1
+    df["ret_60d"] = ac / ac.shift(60) - 1
+
+    # --- Volatility ---
+    df["vol_10d"] = returns.rolling(10).std()
+    df["vol_20d"] = returns.rolling(20).std()
+
+    # --- MA ratios (price position relative to trend) ---
+    df["price_ma5_ratio"] = ac / ac.rolling(5).mean() - 1
+    df["price_ma20_ratio"] = ac / ac.rolling(20).mean() - 1
+    df["price_ma60_ratio"] = ac / ac.rolling(60).mean() - 1
+
+    # --- RSI ---
+    df["rsi_14"] = _rsi(returns)
+
+    # --- Volume ratio ---
+    vol = df["volume"].astype(float)
+    df["vol_ratio_20d"] = vol / vol.rolling(20).mean()
+
+    # --- Intraday range ---
+    df["intraday_range"] = (df["high"] - df["low"]) / ac.replace(0, np.nan)
+
+    # --- Labels: forward returns on adjusted close ---
     for h in horizons:
-        df[f"y_fwd_return_{h}"] = df["adjusted_close"].shift(-h) / df["adjusted_close"] - 1.0
+        df[f"y_fwd_return_{h}"] = ac.shift(-h) / ac - 1.0
+
+    feature_cols = [
+        "pcr", "pcr_chg_5", "voi", "voi_chg_5",
+        "news_sent", "news_sent_chg_5", "news_count",
+        "div_ex_days", "div_amount",
+        "ret_1d", "ret_5d", "ret_20d", "ret_60d",
+        "vol_10d", "vol_20d",
+        "price_ma5_ratio", "price_ma20_ratio", "price_ma60_ratio",
+        "rsi_14", "vol_ratio_20d", "intraday_range",
+    ]
 
     out_rows = []
     for h in horizons:
-        tmp = df[[
-            "pcr", "pcr_chg_5", "voi", "voi_chg_5",
-            "news_sent", "news_sent_chg_5", "news_count",
-            "div_ex_days", "div_amount",
-            f"y_fwd_return_{h}",
-        ]].copy()
+        tmp = df[feature_cols + [f"y_fwd_return_{h}"]].copy()
         tmp = tmp.rename(columns={f"y_fwd_return_{h}": "y_fwd_return"})
         tmp["symbol"] = symbol
         tmp["date"] = tmp.index.astype(str)
@@ -97,6 +148,14 @@ def build_features(con: duckdb.DuckDBPyConnection, symbol: str, *, horizons: lis
     con.execute(
         """
         INSERT OR REPLACE INTO features_daily
+        (symbol, date, horizon, y_fwd_return,
+         pcr, pcr_chg_5, voi, voi_chg_5,
+         news_sent, news_sent_chg_5, news_count,
+         div_ex_days, div_amount,
+         ret_1d, ret_5d, ret_20d, ret_60d,
+         vol_10d, vol_20d,
+         price_ma5_ratio, price_ma20_ratio, price_ma60_ratio,
+         rsi_14, vol_ratio_20d, intraday_range)
         SELECT symbol,
                CAST(date AS DATE) AS date,
                horizon,
@@ -106,7 +165,11 @@ def build_features(con: duckdb.DuckDBPyConnection, symbol: str, *, horizons: lis
                news_sent, news_sent_chg_5,
                CAST(news_count AS INTEGER),
                CAST(div_ex_days AS INTEGER),
-               div_amount
+               div_amount,
+               ret_1d, ret_5d, ret_20d, ret_60d,
+               vol_10d, vol_20d,
+               price_ma5_ratio, price_ma20_ratio, price_ma60_ratio,
+               rsi_14, vol_ratio_20d, intraday_range
         FROM tmp_feat
         """
     )
@@ -123,7 +186,8 @@ if __name__ == "__main__":
     con = db.connect()
     init_db(con)
     for sym in ns.symbols:
+        print(f"[features] {sym}...")
         build_features(con, sym, horizons=list(ns.horizons))
     con.execute("CHECKPOINT")
     con.close()
-
+    print("[features] done.")

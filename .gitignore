@@ -1,0 +1,15 @@
+# Database and model artifacts
+data/*.duckdb
+models/*.pkl
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Environment
+.env
+
+# OS
+.DS_Store
