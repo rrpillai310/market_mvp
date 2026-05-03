@@ -21,8 +21,7 @@ from market_mvp.db import DB, init_db
 from market_mvp.ingest import (
     ingest_daily_adjusted,
     ingest_news_sentiment,
-    ingest_options_pcr,
-    ingest_options_voi,
+    ingest_options_pcr_yf,
 )
 from market_mvp.features import build_features
 from market_mvp.train import train_and_eval
@@ -55,16 +54,11 @@ def run_pipeline(
         print(f"\n[pipeline] {sym}: prices...")
         ingest_daily_adjusted(con, av, sym)
         if not skip_options:
-            print(f"[pipeline] {sym}: options PCR...")
+            print(f"[pipeline] {sym}: options PCR (yfinance)...")
             try:
-                ingest_options_pcr(con, av, sym)
+                ingest_options_pcr_yf(con, sym)
             except Exception as e:
                 print(f"[pipeline] {sym}: options PCR skipped ({e})")
-            print(f"[pipeline] {sym}: options VOI...")
-            try:
-                ingest_options_voi(con, av, sym)
-            except Exception as e:
-                print(f"[pipeline] {sym}: options VOI skipped ({e})")
         if not skip_news:
             print(f"[pipeline] {sym}: news sentiment...")
             ingest_news_sentiment(con, av, sym, limit=news_limit)

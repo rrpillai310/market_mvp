@@ -70,6 +70,33 @@ def ingest_daily_adjusted(con, av: AlphaVantageClient, symbol: str) -> None:
     con.unregister("tmp_prices")
 
 
+def ingest_options_pcr_yf(con, symbol: str) -> None:
+    """Compute today's put/call ratio from yfinance options chains and store it."""
+    import yfinance as yf
+    from datetime import date as date_type
+    ticker = yf.Ticker(symbol)
+    expirations = ticker.options
+    if not expirations:
+        return
+    put_vol = call_vol = 0
+    # Sum volume across nearest 6 expirations to get a representative PCR
+    for exp in expirations[:6]:
+        try:
+            chain = ticker.option_chain(exp)
+            put_vol += chain.puts["volume"].fillna(0).sum()
+            call_vol += chain.calls["volume"].fillna(0).sum()
+        except Exception:
+            continue
+    if call_vol == 0:
+        return
+    pcr = float(put_vol) / float(call_vol)
+    today = str(date_type.today())
+    con.execute(
+        "INSERT OR REPLACE INTO options_pcr_daily(symbol, date, put_call_ratio) VALUES (?, ?, ?)",
+        (symbol, today, pcr),
+    )
+
+
 def ingest_options_pcr(con, av: AlphaVantageClient, symbol: str) -> None:
     # Historical put/call ratio endpoint (Options Data APIs).
     endpoint = "HISTORICAL_PUT_CALL_RATIO"

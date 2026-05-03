@@ -86,46 +86,59 @@ def _html_to_text(content: bytes) -> str:
 
 
 def _fetch_fomc_links() -> list[dict]:
-    """Scrape FOMC calendar page for meeting dates and document links."""
+    """Scrape FOMC calendar page for meeting dates and document links.
+
+    Parses links by URL pattern — robust to page layout changes.
+    Statement URLs: /newsevents/pressreleases/monetary{YYYYMMDD}a.htm
+    Minutes URLs:   /monetarypolicy/fomcminutes{YYYYMMDD}.htm
+    """
     resp = _get(FOMC_CALENDAR_URL)
     soup = BeautifulSoup(resp.content, "html.parser")
     results = []
+    seen = set()
 
-    for div in soup.find_all("div", class_=re.compile(r"fomc-meeting")):
-        # Extract meeting date from heading
-        heading = div.find(["h4", "h5", "h3"])
-        if not heading:
-            continue
-        date_text = heading.get_text(strip=True)
+    stmt_re = re.compile(r"/newsevents/pressreleases/monetary(\d{8})a\.htm")
+    mins_re = re.compile(r"/monetarypolicy/fomcminutes(\d{8})\.htm")
 
-        # Find links to statements and minutes
-        for a in div.find_all("a", href=True):
-            href = a["href"]
-            text = a.get_text(strip=True).lower()
-            if "statement" in text:
-                doc_type = "statement"
-            elif "minutes" in text:
-                doc_type = "minutes"
-            else:
-                continue
-
-            url = href if href.startswith("http") else FED_BASE + href
-            results.append({
-                "date_text": date_text,
-                "doc_type": doc_type,
-                "url": url,
-            })
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        for pattern, doc_type in [(stmt_re, "statement"), (mins_re, "minutes")]:
+            m = pattern.search(href)
+            if m:
+                date_str = m.group(1)   # YYYYMMDD
+                key = (date_str, doc_type)
+                if key in seen:
+                    break
+                seen.add(key)
+                url = href if href.startswith("http") else FED_BASE + href
+                results.append({
+                    "date_text": f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}",
+                    "doc_type": doc_type,
+                    "url": url,
+                })
+                break
 
     return results
 
 
 def _parse_meeting_date(date_text: str) -> date | None:
-    """Parse FOMC meeting date string to a date object."""
-    # e.g. "January 28-29, 2025" or "March 19-20, 2024"
+    """Parse FOMC meeting date string to a date object.
+
+    Accepts ISO format YYYY-MM-DD (from URL pattern) or legacy text like
+    'January 28-29, 2025'.
+    """
+    # ISO format from URL-based extraction
+    iso = re.match(r"(\d{4}-\d{2}-\d{2})$", date_text.strip())
+    if iso:
+        try:
+            return datetime.strptime(iso.group(1), "%Y-%m-%d").date()
+        except ValueError:
+            pass
+    # Legacy text format
     match = re.search(r"(\w+ \d+(?:-\d+)?,?\s*\d{4})", date_text)
     if not match:
         return None
-    cleaned = re.sub(r"\d+-(\d+)", r"\1", match.group(1))  # "28-29" -> "29"
+    cleaned = re.sub(r"\d+-(\d+)", r"\1", match.group(1))
     for fmt in ("%B %d, %Y", "%B %d %Y"):
         try:
             return datetime.strptime(cleaned.strip(), fmt).date()
