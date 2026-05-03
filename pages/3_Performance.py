@@ -90,7 +90,7 @@ if folds:
     )
     fig.update_yaxes(title_text="Dir Acc (%)", row=1, col=1)
     fig.update_yaxes(title_text="RMSE", row=1, col=2)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     # Fold detail table
     with st.expander("Fold detail table"):
@@ -133,7 +133,7 @@ if imps:
         plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
         font=dict(size=12),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     st.divider()
 
@@ -183,6 +183,6 @@ if not feats.empty and bundle is not None:
     )
     pct_correct = sum(correct) / len(correct) * 100
     st.caption(f"Green = correct direction · Red = wrong direction · {pct_correct:.1f}% correct on this sample")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 else:
     st.info("Run the pipeline to generate features and retrain to see this chart.")

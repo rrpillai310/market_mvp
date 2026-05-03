@@ -12,7 +12,7 @@ a single DuckDB file.
 ## Repo layout
 
 ```
-market_mvp/          ← this IS the Python package (run from parent dir)
+market_mvp/          ← Python package (run from parent dir)
   alpha_vantage.py   ← throttled Alpha Vantage HTTP client
   db.py              ← DuckDB schema + connection helper
   ingest.py          ← AV ingestion: prices, options PCR/VOI, news sentiment
@@ -24,11 +24,18 @@ market_mvp/          ← this IS the Python package (run from parent dir)
   train.py           ← LightGBM, walk-forward CV (5 folds), model persistence
   predict.py         ← Load saved model, score latest features row
   pipeline.py        ← Single orchestrator: runs all 6 steps end-to-end
+  ui_data.py         ← Shared Streamlit data layer (cached queries, model loading)
   tests/             ← pytest suite (no network calls, in-memory DuckDB)
   data/              ← DuckDB file lives here (gitignored)
-  models/            ← Saved .pkl models (gitignored)
+  models/            ← Saved .pkl models + metrics JSON (gitignored)
   requirements.txt
   .env.example
+
+app.py               ← Streamlit home page (pipeline status, model summary cards)
+pages/
+  1_Predictions.py   ← Big UP/DOWN card, feature importance, feature snapshot
+  2_Signals.py       ← Candlestick, RSI, momentum, options, news, Fed, social
+  3_Performance.py   ← Walk-forward fold charts, feature importance, actual vs predicted
 ```
 
 ## Data flow
@@ -45,9 +52,10 @@ StockTwits / Reddit──→  social.py  ──→  DuckDB: social_sentiment_dai
                                                   │
                                              train.py
                                                   │
-                                         models/SPY_h5.pkl
+                                         models/SPY_h5.pkl + SPY_h5_metrics.json
                                                   │
-                                            predict.py  →  predicted return + direction
+                                     ┌────────────┴────────────┐
+                                predict.py  →  CLI output     ui_data.py  →  Streamlit UI
 ```
 
 ## Running the pipeline
@@ -140,6 +148,26 @@ Social: `stocktwits_bull_ratio`, `reddit_sentiment`, `social_volume_ratio`
 - Never hardcode API keys. Always read from env vars.
 - The `data/` and `models/` directories are gitignored. Never commit `.duckdb` or `.pkl` files.
 
+## Streamlit UI
+
+Launch from the repo root:
+```bash
+cd /Users/rakeshpillai/market_mvp
+streamlit run app.py
+```
+
+**Architecture:** `ui_data.py` is the single shared data layer imported by all pages.
+- Uses `@st.cache_resource` for the DB connection (one read-only connection per process)
+- Uses `@st.cache_data(ttl=300)` for query results (5-minute cache)
+- DB opened read-only: `duckdb.connect(str(_DB_PATH), read_only=True)`
+- Model path: `_MODELS_DIR / f"{symbol}_h{horizon}.pkl"`
+- Metrics sidecar: `_MODELS_DIR / f"{symbol}_h{horizon}_metrics.json"`
+
+`predict()` in `ui_data.py` calls `load_model()` then scores the latest row from `features_daily`.
+
+**iOS access:** Open `http://<mac-local-ip>:8501` in Safari on the same Wi-Fi.
+Find your Mac IP with: `ipconfig getifaddr en0`
+
 ## Testing
 
 ```bash
@@ -147,8 +175,15 @@ cd /Users/rakeshpillai/market_mvp
 pytest tests/ -v
 ```
 
-All tests use in-memory DuckDB. No network calls. No API keys needed.
-See `tests/conftest.py` for shared fixtures.
+143 tests total. All use in-memory DuckDB. No network calls. No API keys needed.
+
+Key test files:
+- `tests/conftest.py` — shared fixtures (`con`, `loaded_features`, etc.)
+- `tests/test_ui_data.py` — 32 tests for `ui_data.py` (patches `_con()`, `_DB_PATH`, `_MODELS_DIR`)
+- `tests/test_ui_pages.py` — 21 tests using `streamlit.testing.v1.AppTest` (patches `ui_data.*`)
+
+Cache clearing: `test_ui_data.py` has an `autouse` fixture that calls `fn.clear()` on all
+`@st.cache_data` functions between tests so patches take effect.
 
 ## Adding a new data source
 

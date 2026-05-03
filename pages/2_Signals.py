@@ -61,7 +61,7 @@ else:
     )
     fig.update_yaxes(title_text="Price", row=1, col=1)
     fig.update_yaxes(title_text="Volume", row=2, col=1)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 st.divider()
 
@@ -86,7 +86,7 @@ if not feats.empty and "rsi_14" in feats.columns:
         plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
         font=dict(size=12), showlegend=False,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     st.divider()
 
 # ── Momentum ──────────────────────────────────────────────────────────────────
@@ -110,7 +110,7 @@ if not feats.empty:
             plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
             legend=dict(orientation="h", y=1.1), font=dict(size=12),
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         st.divider()
 
 # ── Options ───────────────────────────────────────────────────────────────────
@@ -139,7 +139,7 @@ if not options.empty:
         plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
         showlegend=False, font=dict(size=12),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     st.divider()
 
 # ── News Sentiment ────────────────────────────────────────────────────────────
@@ -167,7 +167,7 @@ if not news.empty:
     )
     fig.update_yaxes(title_text="Sentiment score", secondary_y=False)
     fig.update_yaxes(title_text="Article count", secondary_y=True)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     st.divider()
 
 # ── Fed Minutes ───────────────────────────────────────────────────────────────
@@ -195,7 +195,7 @@ if not fed.empty:
         legend=dict(orientation="h", y=1.1), font=dict(size=12),
         barmode="overlay",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     st.divider()
 
 # ── Social Sentiment ──────────────────────────────────────────────────────────
@@ -226,7 +226,7 @@ if not social.empty:
         plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
         legend=dict(orientation="h", y=1.1), font=dict(size=12),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 if feats.empty and options.empty and news.empty and fed.empty and social.empty:
     st.info("No signal data yet. Run the full pipeline to populate the database.")

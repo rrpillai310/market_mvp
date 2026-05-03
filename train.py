@@ -147,12 +147,15 @@ def train_final(
 
     # Feature importance (LightGBM or sklearn)
     try:
-        importances = dict(zip(FEATURE_COLS, model.feature_importances_))
+        importances = {col: float(v) for col, v in zip(FEATURE_COLS, model.feature_importances_)}
         top5 = sorted(importances.items(), key=lambda x: -x[1])[:5]
     except AttributeError:
         top5 = []
 
-    all_importances = dict(zip(FEATURE_COLS, model.feature_importances_)) if hasattr(model, "feature_importances_") else {}
+    all_importances = (
+        {col: float(v) for col, v in zip(FEATURE_COLS, model.feature_importances_)}
+        if hasattr(model, "feature_importances_") else {}
+    )
 
     metrics = {
         "symbol": symbol,

@@ -90,6 +90,26 @@ Read CLAUDE.md first for architecture context. This file covers agent-specific r
 - **Imports:** stdlib → third-party → local (`market_mvp.*`), separated by blank lines.
 - **No f-strings with complex expressions.** Assign to a variable first.
 
+### Adding a new Streamlit page
+
+```
+1. Create pages/<N>_<Name>.py — Streamlit executes these alphabetically by N
+2. Import data exclusively from market_mvp.ui_data (never open DuckDB directly)
+3. Always guard empty DataFrames: if df.empty: st.warning(...) and return early
+4. Use st.plotly_chart(fig, width="stretch") — not use_container_width=True (deprecated)
+5. Add page-level tests in tests/test_ui_pages.py using AppTest.from_file()
+   - Patch all ui_data.* functions with unittest.mock.patch as context managers
+   - Assert: not at.exception (always), then content assertions
+```
+
+### Adding a new ui_data query function
+
+```
+1. Add the function to ui_data.py with @st.cache_data(ttl=300)
+2. Add it to the clear_st_caches autouse fixture in tests/test_ui_data.py
+3. Write unit tests patching _con() with the in-memory test connection
+```
+
 ## Testing rules
 
 - Every new module gets a `tests/test_<module>.py`.
@@ -100,6 +120,14 @@ Read CLAUDE.md first for architecture context. This file covers agent-specific r
 - Do not use `unittest.TestCase`. Plain functions only.
 - Mock external HTTP at the `requests.get` / `openai.OpenAI` level, not deeper.
 - Use the `con` fixture from `conftest.py` for all DB interactions.
+
+**Streamlit-specific testing rules:**
+- Use `AppTest.from_file(path).run()` — never start a real server.
+- Always wrap `at = AppTest.from_file(...).run()` inside the `patch()` context managers.
+- Access markdown content via `e.value` (not `str(e)`) on AppTest markdown elements.
+- Clear `@st.cache_data` functions with `fn.clear()` between tests (autouse fixture).
+- Do not patch `ui_data` functions with `@st.cache_resource` decorated functions
+  (the `_con()` helper uses `@st.cache_resource` — patch the raw function, not the wrapper).
 
 ## What NOT to do
 
@@ -112,6 +140,11 @@ Read CLAUDE.md first for architecture context. This file covers agent-specific r
 - Do not use `datetime.utcnow()` (deprecated). Use `datetime.now(timezone.utc)`.
 - Do not import `market_mvp.pipeline` or `market_mvp.predict` from inside other modules.
   They are entrypoints only.
+- Do not open DuckDB in Streamlit pages directly — always go through `ui_data.py`.
+- Do not use `use_container_width=True` in Streamlit calls — use `width="stretch"` for
+  `st.plotly_chart()`. The `use_container_width` parameter is deprecated since 1.57.0.
+- Do not serialize LightGBM feature importances as `np.int32` to JSON — cast to `float()`
+  before writing metrics JSON (numpy integers are not JSON-serializable).
 
 ## Key invariants to preserve
 
