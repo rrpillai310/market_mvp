@@ -100,11 +100,11 @@ Copy `.env.example` to `.env` and fill in:
 
 ## DGX Spark / Ollama
 
-The project uses a local DGX Spark at `spark-1dca.local` (192.168.1.86) running Ollama.
-WiFi latency is 4–225ms (spiky). The Ollama client in `llm.py` uses:
+The project uses a local DGX Spark connected via direct 10GbE Ethernet at `10.0.0.2`.
+Sub-millisecond latency. The Ollama client in `llm.py` uses:
 - 120s timeout on all requests
 - Exponential backoff retry (up to 3 attempts)
-- `qwen2.5:72b` for structured JSON extraction
+- `qwen3.6:latest` for structured JSON extraction (36B, faster than qwen2.5:72b)
 - `deepseek-r1:70b` for Fed minutes (chain-of-thought reasoning)
 
 If the DGX is offline, set `OLLAMA_HOST` to any other Ollama instance.

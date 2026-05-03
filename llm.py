@@ -9,7 +9,7 @@ from openai import OpenAI
 
 
 def _client() -> OpenAI:
-    host = os.getenv("OLLAMA_HOST", "http://spark-1dca.local:11434")
+    host = os.getenv("OLLAMA_HOST", "http://10.0.0.2:11434")
     return OpenAI(base_url=f"{host}/v1", api_key="ollama")
 
 
@@ -36,6 +36,9 @@ def extract_json(
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
 
+    # Disable chain-of-thought for extraction calls — thinking adds latency with no benefit
+    extra = {} if reasoning else {"think": False}
+
     last_err: Exception | None = None
     for attempt in range(retries):
         try:
@@ -44,6 +47,7 @@ def extract_json(
                 messages=messages,
                 temperature=0,
                 timeout=timeout,
+                extra_body=extra,
             )
             raw = resp.choices[0].message.content or ""
             # Strip markdown fences if present
@@ -75,10 +79,12 @@ def complete(
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
+    extra = {} if reasoning else {"think": False}
     resp = client.chat.completions.create(
         model=model,
         messages=messages,
         temperature=0,
         timeout=timeout,
+        extra_body=extra,
     )
     return resp.choices[0].message.content or ""
