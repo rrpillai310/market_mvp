@@ -36,40 +36,29 @@ def _cache_put(con, *, provider: str, endpoint: str, symbol: str | None, params:
 
 
 def ingest_daily_adjusted(con, av: AlphaVantageClient, symbol: str) -> None:
-    endpoint = "TIME_SERIES_DAILY_ADJUSTED"
-    params = {"symbol": symbol, "outputsize": "full"}
-    cached = _cache_get(con, provider="alphavantage", endpoint=endpoint, symbol=symbol, params=params)
-    if cached is None:
-        data = av.get(function=endpoint, params=params)
-        _cache_put(con, provider="alphavantage", endpoint=endpoint, symbol=symbol, params=params, payload=data)
-    else:
-        data = cached
-
-    ts = data.get("Time Series (Daily)")
-    if not isinstance(ts, dict):
+    import yfinance as yf
+    ticker = yf.Ticker(symbol)
+    raw = ticker.history(period="max", auto_adjust=False, actions=True)
+    if raw.empty:
+        print(f"[ingest] {symbol}: yfinance returned no data")
         return
 
-    rows = []
-    for d, v in ts.items():
-        try:
-            rows.append({
-                "symbol": symbol,
-                "date": d,
-                "open": float(v.get("1. open", "nan")),
-                "high": float(v.get("2. high", "nan")),
-                "low": float(v.get("3. low", "nan")),
-                "close": float(v.get("4. close", "nan")),
-                "adjusted_close": float(v.get("5. adjusted close", "nan")),
-                "volume": int(float(v.get("6. volume", 0) or 0)),
-                "dividend_amount": float(v.get("7. dividend amount", 0) or 0),
-                "split_coefficient": float(v.get("8. split coefficient", 1) or 1),
-            })
-        except Exception:
-            continue
+    raw = raw.reset_index()
+    raw.columns = [c.lower().replace(" ", "_") for c in raw.columns]
 
-    df = pd.DataFrame(rows)
-    if df.empty:
-        return
+    df = pd.DataFrame({
+        "symbol": symbol,
+        "date": pd.to_datetime(raw["date"]).dt.date.astype(str),
+        "open": raw["open"].astype(float),
+        "high": raw["high"].astype(float),
+        "low": raw["low"].astype(float),
+        "close": raw["close"].astype(float),
+        "adjusted_close": raw["adj_close"].astype(float),
+        "volume": raw["volume"].astype(float),
+        "dividend_amount": raw.get("dividends", pd.Series(0.0, index=raw.index)).fillna(0.0).astype(float),
+        "split_coefficient": raw.get("stock_splits", pd.Series(1.0, index=raw.index)).replace(0, 1.0).astype(float),
+    })
+
     con.register("tmp_prices", df)
     con.execute(
         """

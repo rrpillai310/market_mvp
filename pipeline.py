@@ -56,9 +56,15 @@ def run_pipeline(
         ingest_daily_adjusted(con, av, sym)
         if not skip_options:
             print(f"[pipeline] {sym}: options PCR...")
-            ingest_options_pcr(con, av, sym)
+            try:
+                ingest_options_pcr(con, av, sym)
+            except Exception as e:
+                print(f"[pipeline] {sym}: options PCR skipped ({e})")
             print(f"[pipeline] {sym}: options VOI...")
-            ingest_options_voi(con, av, sym)
+            try:
+                ingest_options_voi(con, av, sym)
+            except Exception as e:
+                print(f"[pipeline] {sym}: options VOI skipped ({e})")
         if not skip_news:
             print(f"[pipeline] {sym}: news sentiment...")
             ingest_news_sentiment(con, av, sym, limit=news_limit)

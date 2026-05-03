@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -55,41 +56,41 @@ def _make_av_client(payload: dict):
     return FakeAV()
 
 
+def _make_yf_history(dates, closes):
+    """Build a fake yfinance history DataFrame."""
+    n = len(dates)
+    return pd.DataFrame({
+        "Date": pd.to_datetime(dates),
+        "Open": closes,
+        "High": [c * 1.005 for c in closes],
+        "Low": [c * 0.995 for c in closes],
+        "Close": closes,
+        "Adj Close": closes,
+        "Volume": [75_000_000.0] * n,
+        "Dividends": [0.0] * n,
+        "Stock Splits": [0.0] * n,
+    })
+
+
+def _patch_yfinance(history_df):
+    mock_ticker = MagicMock()
+    mock_ticker.history.return_value = history_df
+    return patch("yfinance.Ticker", return_value=mock_ticker)
+
+
 def test_ingest_daily_adjusted_writes_prices(con):
-    payload = {
-        "Time Series (Daily)": {
-            "2024-01-02": {
-                "1. open": "400.0", "2. high": "405.0", "3. low": "398.0",
-                "4. close": "403.0", "5. adjusted close": "403.0",
-                "6. volume": "75000000", "7. dividend amount": "0.0",
-                "8. split coefficient": "1.0",
-            },
-            "2024-01-03": {
-                "1. open": "403.0", "2. high": "407.0", "3. low": "401.0",
-                "4. close": "406.0", "5. adjusted close": "406.0",
-                "6. volume": "80000000", "7. dividend amount": "0.0",
-                "8. split coefficient": "1.0",
-            },
-        }
-    }
-    ingest_daily_adjusted(con, _make_av_client(payload), "SPY")
+    df = _make_yf_history(["2024-01-02", "2024-01-03"], [403.0, 406.0])
+    with _patch_yfinance(df):
+        ingest_daily_adjusted(con, None, "SPY")
     count = con.execute("SELECT COUNT(*) FROM prices_daily WHERE symbol='SPY'").fetchone()[0]
     assert count == 2
 
 
 def test_ingest_daily_adjusted_is_idempotent(con):
-    payload = {
-        "Time Series (Daily)": {
-            "2024-01-02": {
-                "1. open": "400.0", "2. high": "405.0", "3. low": "398.0",
-                "4. close": "403.0", "5. adjusted close": "403.0",
-                "6. volume": "75000000", "7. dividend amount": "0.0",
-                "8. split coefficient": "1.0",
-            }
-        }
-    }
-    ingest_daily_adjusted(con, _make_av_client(payload), "SPY")
-    ingest_daily_adjusted(con, _make_av_client(payload), "SPY")
+    df = _make_yf_history(["2024-01-02"], [403.0])
+    with _patch_yfinance(df):
+        ingest_daily_adjusted(con, None, "SPY")
+        ingest_daily_adjusted(con, None, "SPY")
     count = con.execute("SELECT COUNT(*) FROM prices_daily WHERE symbol='SPY'").fetchone()[0]
     assert count == 1
 
