@@ -1,6 +1,10 @@
 # Database and model artifacts
 data/*.duckdb
 models/*.pkl
+models/*.json
+
+# Logs
+logs/
 
 # Python cache
 __pycache__/
