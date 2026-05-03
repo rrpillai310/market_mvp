@@ -107,10 +107,12 @@ python3 -m market_mvp.train --symbol QQQ --horizon 5
 ## 6. Open the dashboard
 
 ```bash
-PYTHONPATH=/Users/rakeshpillai streamlit run /Users/rakeshpillai/market_mvp/app.py
+PYTHONPATH=/Users/rakeshpillai /opt/anaconda3/bin/streamlit run /Users/rakeshpillai/market_mvp/app.py
 ```
 
-This starts a local server at `http://localhost:8501`.
+This starts a local server at `http://localhost:8501`. Open that URL in any browser.
+
+> **Note:** Stop Streamlit before running the pipeline (Ctrl+C), then restart it after. DuckDB only allows one writer at a time.
 
 **Access from iPhone / iPad on the same Wi-Fi:**
 1. Find your Mac's local IP: `ipconfig getifaddr en0`
