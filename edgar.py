@@ -23,17 +23,45 @@ EDGAR_WWW = "https://www.sec.gov"
 _HEADERS = {"User-Agent": "market_mvp/1.0 rakesh@rakeshpillai.com"}
 
 # Top holdings by ETF — drives which company earnings we ingest.
-# Weighted by approximate index weight; top 20 covers ~40-50% of ETF movement.
+# Top 100 covers ~70-75% of ETF weight. Updated May 2026.
 ETF_HOLDINGS: dict[str, list[str]] = {
     "SPY": [
-        "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "GOOG", "AVGO",
-        "TSLA", "BRK-B", "LLY", "JPM", "V", "UNH", "XOM", "MA", "COST",
-        "HD", "NFLX", "AMD",
+        # Top 10 (~35% weight)
+        "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "GOOG", "AVGO", "TSLA", "BRK-B",
+        # 11-25
+        "LLY", "JPM", "V", "UNH", "XOM", "MA", "COST", "HD", "NFLX", "AMD",
+        "WMT", "ORCL", "BAC", "CRM", "CVX",
+        # 26-50
+        "MRK", "PEP", "TMO", "KO", "ACN", "CSCO", "ABT", "MCD", "GE", "NOW",
+        "IBM", "CAT", "GS", "INTU", "QCOM", "TXN", "PM", "AMGN", "DHR", "ISRG",
+        "VZ", "RTX", "SPGI", "PGR", "BKNG",
+        # 51-75
+        "AXP", "LOW", "T", "AMAT", "BLK", "SYK", "UBER", "GILD", "ELV", "VRTX",
+        "MDLZ", "ADI", "MMC", "BSX", "DE", "MU", "SCHW", "ETN", "CB", "LRCX",
+        "ZTS", "PLD", "ADP", "AMT", "SBUX",
+        # 76-100
+        "TMUS", "BA", "SO", "CI", "DUK", "CME", "ICE", "REGN", "MCO", "AON",
+        "CL", "EQIX", "CEG", "WM", "SHW", "USB", "FCX", "CDNS", "SNPS", "MSI",
+        "TJX", "EOG", "FI", "EMR", "PH",
     ],
     "QQQ": [
-        "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "GOOG", "AVGO",
-        "TSLA", "COST", "NFLX", "AMD", "ADBE", "QCOM", "INTC", "MU",
-        "INTU", "AMAT", "LRCX", "PYPL",
+        # Top 10 (~55% weight)
+        "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "GOOG", "AVGO", "TSLA", "COST",
+        # 11-25
+        "NFLX", "AMD", "ADBE", "QCOM", "INTU", "AMAT", "LRCX", "MU", "PYPL", "INTC",
+        "MRVL", "KLAC", "SNPS", "CDNS", "ORLY",
+        # 26-50
+        "REGN", "MAR", "MELI", "DASH", "ABNB", "CRWD", "MNST", "FTNT", "WDAY", "TEAM",
+        "PCAR", "CEG", "MDLZ", "ADP", "CSX", "PAYX", "FAST", "ROST", "DXCM", "GEHC",
+        "IDXX", "TTWO", "VRSK", "BIIB", "ANSS",
+        # 51-75
+        "ON", "SMCI", "FANG", "KDP", "DLTR", "EXC", "CSGP", "CPRT", "ILMN", "ODFL",
+        "SGEN", "ZS", "PANW", "OKTA", "SNOW", "MDB", "NET", "DDOG", "GTLB", "TTD",
+        "APP", "COIN", "ARM", "MSTR", "RBLX",
+        # 76-100
+        "ZM", "DOCU", "BILL", "HUBS", "VEEV", "COUP", "SMAR", "BOX", "ESTC", "CFLT",
+        "APPN", "BRZE", "RXRX", "IONQ", "NBIS", "ACMR", "GENI", "TASK", "ALKT", "CVNA",
+        "MODG", "JOBY", "ACHR", "RKLB", "LUNR",
     ],
 }
 
