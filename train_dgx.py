@@ -108,10 +108,16 @@ def _make_datasets(df: pd.DataFrame):
 
 
 def train(symbol: str, horizon: int, max_epochs: int, batch_size: int) -> None:
-    import pytorch_lightning as pl
+    # Import lightning before pytorch_forecasting so both share the same LightningModule
+    try:
+        import lightning.pytorch as pl
+        from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+    except ImportError:
+        import pytorch_lightning as pl
+        from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
+
     from pytorch_forecasting import TemporalFusionTransformer
     from pytorch_forecasting.metrics import QuantileLoss
-    from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 
     device = "GPU" if torch.cuda.is_available() else "CPU"
     if torch.cuda.is_available():
