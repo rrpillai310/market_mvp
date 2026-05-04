@@ -30,6 +30,12 @@ PYTHONPATH="$PARENT" /opt/homebrew/opt/python@3.14/bin/python3.14 \
 
 echo "[cron] Pipeline complete: $(date)" | tee -a "$LOG"
 
+# Kick off TFT training on DGX in background (rsync data → train → rsync models back)
+# Streamlit restarts immediately; TFT completes in the background and updates pred JSONs.
+echo "[cron] Starting TFT training in background..." | tee -a "$LOG"
+bash "$REPO/scripts/daily_tft.sh" >> "$LOG_DIR/tft_$(date +%Y%m%d).log" 2>&1 &
+echo "[cron] TFT PID: $!" | tee -a "$LOG"
+
 # Restart Streamlit in background
 echo "[cron] Restarting Streamlit..." | tee -a "$LOG"
 PYTHONPATH="$PARENT" /opt/anaconda3/bin/streamlit run "$REPO/app.py" \

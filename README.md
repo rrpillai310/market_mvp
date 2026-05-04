@@ -134,24 +134,32 @@ cat ~/.ssh/id_ed25519.pub   # paste into github.com → Settings → SSH keys
 git clone git@github.com:rrpillai310/market_mvp.git
 ```
 
-**TFT training workflow (run after each pipeline run):**
+**One-time: convert container to a persistent daemon (run on DGX once):**
 
 ```bash
-# 1. Mac Studio — sync DuckDB to DGX
-rsync -avz /Users/rakeshpillai/data/ rrpillai@10.0.0.2:~/data/
+# Save your pip-installed packages into a new image, then recreate as always-on daemon
+docker commit market_mvp market_mvp:with-deps
+docker rm -f market_mvp
+docker run --gpus all -d --name market_mvp --restart unless-stopped \
+  -v ~/market_mvp:/workspace/market_mvp \
+  -v ~/data:/workspace/data \
+  -v ~/models:/workspace/models \
+  market_mvp:with-deps sleep infinity
+```
 
-# 2. DGX — inside container
-docker start -ai market_mvp
-git -C /workspace/market_mvp pull   # get latest train_dgx.py
+After this, the container stays running across reboots and `docker exec` works without
+any manual intervention — which is what the automated pipeline script needs.
 
-# Train all symbols, both horizons
-python /workspace/market_mvp/train_dgx.py --symbols SPY QQQ VXUS XSD XLK --horizons 5 20
+**TFT training runs automatically** via `scripts/daily_tft.sh`, called in the background
+by `scripts/daily_pipeline.sh` after the LightGBM pipeline finishes each morning.
 
-# Or a single symbol/horizon
-python /workspace/market_mvp/train_dgx.py --symbol SPY --horizon 5
+To run manually:
+```bash
+bash /Users/rakeshpillai/market_mvp/scripts/daily_tft.sh
 
-# 3. Mac Studio — sync models + prediction JSONs back
-rsync -avz rrpillai@10.0.0.2:~/models/ /Users/rakeshpillai/models/
+# Or directly on DGX inside the container:
+docker exec market_mvp python /workspace/market_mvp/train_dgx.py \
+    --symbols SPY QQQ VXUS XSD XLK --horizons 5 20
 ```
 
 The Streamlit Predictions page shows LightGBM and TFT predictions side by side automatically
