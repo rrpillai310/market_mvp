@@ -16,7 +16,7 @@ horizon = col_h.selectbox("Horizon (days)", d.HORIZONS)
 
 st.divider()
 
-# ── Prediction ────────────────────────────────────────────────────────────────
+# ── LightGBM prediction ───────────────────────────────────────────────────────
 
 if not d.model_exists(symbol, horizon):
     st.warning(
@@ -30,34 +30,57 @@ if result is None:
     st.error("Model found but no features in DB. Run the full pipeline first.")
     st.stop()
 
-pred_pct = result["predicted_return"] * 100
-direction = result["direction"]
-color = "#00c853" if direction == "UP" else "#d50000"
-arrow = "▲" if direction == "UP" else "▼"
+# ── Model comparison cards ────────────────────────────────────────────────────
 
-# Big direction card
-st.markdown(
-    f"""
-    <div style="
-        background:{color}18;
-        border:2px solid {color};
-        border-radius:12px;
-        padding:24px 32px;
-        display:flex;
-        align-items:center;
-        gap:24px;
-        margin-bottom:8px;
-    ">
-        <span style="font-size:48px;">{arrow}</span>
-        <div>
-            <div style="font-size:36px;font-weight:700;color:{color};">{direction}</div>
-            <div style="font-size:20px;color:{color};">{pred_pct:+.2f}% predicted over {horizon}d</div>
-            <div style="font-size:13px;color:#888;margin-top:4px;">As of {result['as_of_date']}</div>
+tft_result = d.predict_tft(symbol, horizon)
+
+if tft_result:
+    lgbm_col, tft_col = st.columns(2)
+else:
+    lgbm_col = st.container()
+
+
+def _pred_card(container, res, label):
+    pred_pct = res["predicted_return"] * 100
+    direction = res["direction"]
+    color = "#00c853" if direction == "UP" else "#d50000"
+    arrow = "▲" if direction == "UP" else "▼"
+    container.markdown(
+        f"""
+        <div style="
+            background:{color}18;
+            border:2px solid {color};
+            border-radius:12px;
+            padding:20px 28px;
+            margin-bottom:8px;
+        ">
+            <div style="font-size:12px;color:#888;margin-bottom:4px;">{label}</div>
+            <div style="display:flex;align-items:center;gap:16px;">
+                <span style="font-size:40px;">{arrow}</span>
+                <div>
+                    <div style="font-size:30px;font-weight:700;color:{color};">{direction}</div>
+                    <div style="font-size:17px;color:{color};">{pred_pct:+.2f}% over {horizon}d</div>
+                    <div style="font-size:12px;color:#888;margin-top:2px;">As of {res['as_of_date']}</div>
+                </div>
+            </div>
         </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+_pred_card(lgbm_col, result, "LightGBM")
+if tft_result:
+    _pred_card(tft_col, tft_result, f"TFT  (val_loss={tft_result.get('val_loss', 0):.4f})")
+    if "p10" in tft_result:
+        tft_col.caption(
+            f"90% CI: {tft_result['p10']*100:+.2f}% — {tft_result['p90']*100:+.2f}%"
+        )
+else:
+    st.caption(
+        "TFT model not available. Train on DGX: "
+        f"`python /workspace/market_mvp/train_dgx.py --symbol {symbol} --horizon {horizon}`"
+    )
 
 st.divider()
 
