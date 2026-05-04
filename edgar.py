@@ -63,6 +63,28 @@ ETF_HOLDINGS: dict[str, list[str]] = {
         "APPN", "BRZE", "RXRX", "IONQ", "NBIS", "ACMR", "GENI", "TASK", "ALKT", "CVNA",
         "MODG", "JOBY", "ACHR", "RKLB", "LUNR",
     ],
+    # VXUS — Vanguard Total International Stock ETF (top global ex-US holdings)
+    "VXUS": [
+        "ASML", "NVO", "NVEI", "SAP", "TM", "SHEL", "AZN", "HSBC", "RIO", "BHP",
+        "SNY", "UL", "BP", "GSK", "BTI", "DEO", "ABBV", "NVS", "ROG", "NESN",
+        "TCEHY", "BABA", "JD", "BIDU", "PDD", "TSM", "SONY", "SIE", "ALV", "MBG",
+        "ORAN", "VOD", "BNP", "SAN", "ING", "ABN", "PHG", "EOAN", "RWE", "ENI",
+        "TTE", "RELIANCE", "INFY", "WIT", "HDB", "IBN", "ITUB", "BBD", "VALE", "PBR",
+    ],
+    # XSD — SPDR S&P Semiconductor ETF (equal-weighted, ~40 holdings)
+    "XSD": [
+        "NVDA", "AMD", "INTC", "QCOM", "AVGO", "TXN", "AMAT", "LRCX", "KLAC", "MU",
+        "MRVL", "ON", "SWKS", "MCHP", "ADI", "NXPI", "MPWR", "WOLF", "ALGM", "CRUS",
+        "DIOD", "FORM", "IMOS", "KLIC", "ONTO", "POWI", "RMBS", "SITM", "SMTC", "SYNA",
+        "ACLS", "AEHR", "COHU", "GSIT", "IOSP", "IXYS", "MRAM", "MTSI", "NVEC", "PRGS",
+    ],
+    # XLK — Technology Select Sector SPDR (top tech holdings from S&P 500)
+    "XLK": [
+        "AAPL", "MSFT", "NVDA", "AVGO", "CRM", "ORCL", "ACN", "AMD", "QCOM", "TXN",
+        "INTU", "IBM", "AMAT", "NOW", "ADI", "LRCX", "KLAC", "MU", "CSCO", "ANET",
+        "FTNT", "CDNS", "SNPS", "ROP", "KEYS", "ANSS", "TDY", "MPWR", "ENPH", "FSLR",
+        "GLW", "HPQ", "HPE", "WDC", "STX", "NTAP", "JNPR", "ZBRA", "TER", "MKSI",
+    ],
 }
 
 

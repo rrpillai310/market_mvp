@@ -14,16 +14,10 @@ mkdir -p "$LOG_DIR"
 
 echo "=== Daily pipeline started: $(date) ===" | tee -a "$LOG"
 
-# Stop Streamlit if running
-if [ -f "$STREAMLIT_PID_FILE" ]; then
-    PID=$(cat "$STREAMLIT_PID_FILE")
-    if kill -0 "$PID" 2>/dev/null; then
-        echo "[cron] Stopping Streamlit (PID $PID)..." | tee -a "$LOG"
-        kill "$PID"
-        sleep 3
-    fi
-    rm -f "$STREAMLIT_PID_FILE"
-fi
+# Stop Streamlit if running — kill all streamlit processes to release DB lock
+echo "[cron] Stopping Streamlit..." | tee -a "$LOG"
+pkill -f "streamlit run" 2>/dev/null || true
+sleep 5  # Wait for DuckDB lock to release
 
 # Run pipeline
 cd "$PARENT"
