@@ -6,7 +6,10 @@ Returns empty DataFrames / None on missing data — UI pages must handle those.
 from __future__ import annotations
 
 import json
+import os
 import pickle
+import subprocess
+import sys
 from pathlib import Path
 
 import duckdb
@@ -15,8 +18,82 @@ import streamlit as st
 
 _DB_PATH = Path(__file__).parent.parent / "data" / "market_mvp.duckdb"
 _MODELS_DIR = Path(__file__).parent.parent / "models"
+_CONFIG_PATH = Path(__file__).parent / "config" / "symbols.json"
+_PIPELINE_STATE = Path(__file__).parent / "config" / "pipeline_state.json"
 
-SYMBOLS = ["SPY", "QQQ", "VXUS", "XSD", "XLK"]
+
+def _load_config() -> dict:
+    if _CONFIG_PATH.exists():
+        with open(_CONFIG_PATH) as f:
+            return json.load(f)
+    return {"symbols": [{"ticker": t, "type": "etf"} for t in ["SPY", "QQQ", "VXUS", "XSD", "XLK"]]}
+
+
+def get_symbols() -> list[str]:
+    return [s["ticker"] for s in _load_config().get("symbols", [])]
+
+
+def get_tracked_symbols() -> list[dict]:
+    return _load_config().get("symbols", [])
+
+
+def add_symbol(ticker: str, symbol_type: str = "stock") -> None:
+    cfg = _load_config()
+    if ticker.upper() not in [s["ticker"] for s in cfg["symbols"]]:
+        cfg["symbols"].append({"ticker": ticker.upper(), "type": symbol_type})
+        with open(_CONFIG_PATH, "w") as f:
+            json.dump(cfg, f, indent=2)
+
+
+def remove_symbol(ticker: str) -> None:
+    cfg = _load_config()
+    cfg["symbols"] = [s for s in cfg["symbols"] if s["ticker"] != ticker.upper()]
+    with open(_CONFIG_PATH, "w") as f:
+        json.dump(cfg, f, indent=2)
+
+
+def symbol_has_data(symbol: str) -> bool:
+    try:
+        c = _get_con()
+        if c is None:
+            return False
+        row = c.execute("SELECT COUNT(*) FROM prices_daily WHERE symbol=?", (symbol,)).fetchone()
+        return bool(row and row[0] > 0)
+    except Exception:
+        return False
+
+
+def is_pipeline_running() -> bool:
+    if not _PIPELINE_STATE.exists():
+        return False
+    try:
+        with open(_PIPELINE_STATE) as f:
+            state = json.load(f)
+        pid = state.get("pid")
+        if pid:
+            os.kill(int(pid), 0)
+            return True
+    except (OSError, ProcessLookupError, ValueError):
+        _PIPELINE_STATE.unlink(missing_ok=True)
+    return False
+
+
+def trigger_pipeline(ticker: str) -> int:
+    cmd = [
+        sys.executable, "-m", "market_mvp.pipeline",
+        "--symbols", ticker.upper(),
+        "--skip-social",
+    ]
+    env = {**os.environ, "PYTHONPATH": str(_DB_PATH.parent.parent)}
+    proc = subprocess.Popen(cmd, cwd=str(_DB_PATH.parent.parent), env=env)
+    state = {"pid": proc.pid, "symbol": ticker.upper()}
+    _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(_PIPELINE_STATE, "w") as f:
+        json.dump(state, f)
+    return proc.pid
+
+
+SYMBOLS = get_symbols()
 HORIZONS = [5, 20]
 
 

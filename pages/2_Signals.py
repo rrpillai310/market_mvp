@@ -14,7 +14,7 @@ st.title("📊 Signals Explorer")
 # ── Controls ──────────────────────────────────────────────────────────────────
 
 col_sym, col_days, _ = st.columns([1, 1, 3])
-symbol = col_sym.selectbox("Symbol", d.SYMBOLS)
+symbol = col_sym.selectbox("Symbol", d.get_symbols())
 days = col_days.selectbox("Lookback", [30, 60, 90, 180], index=1, format_func=lambda x: f"{x} days")
 
 st.divider()

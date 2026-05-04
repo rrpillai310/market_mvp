@@ -85,6 +85,12 @@ ETF_HOLDINGS: dict[str, list[str]] = {
         "FTNT", "CDNS", "SNPS", "ROP", "KEYS", "ANSS", "TDY", "MPWR", "ENPH", "FSLR",
         "GLW", "HPQ", "HPE", "WDC", "STX", "NTAP", "JNPR", "ZBRA", "TER", "MKSI",
     ],
+    # XLE — Energy Select Sector SPDR (top energy holdings from S&P 500)
+    "XLE": [
+        "XOM", "CVX", "COP", "EOG", "SLB", "MPC", "PSX", "VLO", "WMB", "OKE",
+        "KMI", "HES", "DVN", "FANG", "HAL", "BKR", "OXY", "CTRA", "APA", "MRO",
+        "TRGP", "EQT", "NOV", "RRC", "AR",
+    ],
 }
 
 
@@ -237,14 +243,24 @@ def ingest_etf_holdings_earnings(con, etf_symbol: str) -> None:
         print(f"  [edgar] {ticker}: {n} periods written.")
 
 
+def ingest_symbol_earnings(con, symbol: str) -> None:
+    """Dispatch earnings ingestion: ETF → holdings, single stock → itself."""
+    if symbol.upper() in ETF_HOLDINGS:
+        ingest_etf_holdings_earnings(con, symbol)
+    else:
+        print(f"[edgar] Ingesting earnings for single stock {symbol}...")
+        n = ingest_earnings_for_symbol(con, symbol)
+        print(f"  [edgar] {symbol}: {n} periods written.")
+
+
 def build_earnings_features(con, etf_symbol: str) -> pd.DataFrame:
-    """Compute per-date earnings proximity features for an ETF.
+    """Compute per-date earnings proximity features for an ETF or single stock.
 
     Returns a DataFrame indexed by date with:
       eps_surprise_pct, rev_surprise_pct, days_to_earnings
-    as aggregate signals across top holdings.
+    as aggregate signals across top holdings (or the symbol itself for single stocks).
     """
-    holdings = ETF_HOLDINGS.get(etf_symbol.upper(), [])
+    holdings = ETF_HOLDINGS.get(etf_symbol.upper(), [etf_symbol.upper()])
     if not holdings:
         return pd.DataFrame()
 

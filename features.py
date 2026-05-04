@@ -117,6 +117,87 @@ def build_features(con: duckdb.DuckDBPyConnection, symbol: str, *, horizons: lis
     # --- Intraday range ---
     df["intraday_range"] = (df["high"] - df["low"]) / ac.replace(0, np.nan)
 
+    # --- Earnings features (EDGAR XBRL) ---
+    from market_mvp.edgar import build_earnings_features, ETF_HOLDINGS as _ETF_HOLDINGS
+    _earn = build_earnings_features(con, symbol)
+    if not _earn.empty:
+        _earn = _earn.set_index("date")
+        _earn.index = pd.to_datetime(_earn.index).date
+        df = df.join(_earn[["eps_surprise_pct", "rev_surprise_pct"]], how="left")
+        df["eps_surprise_pct"] = df["eps_surprise_pct"].ffill()
+        df["rev_surprise_pct"] = df["rev_surprise_pct"].ffill()
+    else:
+        df["eps_surprise_pct"] = np.nan
+        df["rev_surprise_pct"] = np.nan
+
+    # days since last earnings filing (via binary search)
+    _hold = _ETF_HOLDINGS.get(symbol.upper(), [symbol])
+    _ph = ",".join("?" * len(_hold))
+    _fdates = con.execute(
+        f"SELECT DISTINCT CAST(period_end AS DATE) AS d FROM edgar_earnings WHERE symbol IN ({_ph}) ORDER BY d",
+        _hold,
+    ).df()
+    if not _fdates.empty:
+        _ft = pd.to_datetime(_fdates["d"]).values
+        _dt = pd.to_datetime(list(df.index)).values
+        _idx = np.searchsorted(_ft, _dt, side="right") - 1
+        df["days_to_earnings"] = np.where(
+            _idx >= 0,
+            (_dt - _ft[np.clip(_idx, 0, len(_ft) - 1)]).astype("timedelta64[D]").astype(int),
+            -1,
+        )
+    else:
+        df["days_to_earnings"] = -1
+
+    # --- Fed features ---
+    _fed = con.execute(
+        "SELECT CAST(meeting_date AS DATE) AS d, hawkish_score, net_score FROM fed_minutes ORDER BY d"
+    ).df()
+    if not _fed.empty:
+        _fed.index = pd.to_datetime(_fed["d"]).dt.date
+        _fed = _fed.sort_index()
+        df = df.join(_fed[["hawkish_score", "net_score"]].rename(
+            columns={"hawkish_score": "fed_hawkish_score", "net_score": "fed_net_score"}
+        ), how="left")
+        df["fed_hawkish_score"] = df["fed_hawkish_score"].ffill()
+        df["fed_net_score"] = df["fed_net_score"].ffill()
+        _ft2 = pd.to_datetime(_fed.index.astype(str)).values
+        _dt2 = pd.to_datetime(list(df.index)).values
+        _idx2 = np.searchsorted(_ft2, _dt2, side="right") - 1
+        df["fed_days_since"] = np.where(
+            _idx2 >= 0,
+            (_dt2 - _ft2[np.clip(_idx2, 0, len(_ft2) - 1)]).astype("timedelta64[D]").astype(int),
+            -1,
+        )
+    else:
+        df["fed_hawkish_score"] = np.nan
+        df["fed_net_score"] = np.nan
+        df["fed_days_since"] = -1
+
+    # --- Social sentiment features ---
+    _soc = con.execute(
+        """
+        SELECT CAST(date AS DATE) AS d,
+               MAX(CASE WHEN source='stocktwits' THEN bull_ratio END)    AS stocktwits_bull_ratio,
+               MAX(CASE WHEN source='reddit'     THEN sentiment_score END) AS reddit_sentiment,
+               SUM(COALESCE(message_count, 0))                            AS soc_msgs
+        FROM social_sentiment_daily WHERE symbol=?
+        GROUP BY d ORDER BY d
+        """,
+        (symbol,),
+    ).df()
+    if not _soc.empty:
+        _soc.index = pd.to_datetime(_soc["d"]).dt.date
+        _soc = _soc.sort_index()
+        df = df.join(_soc[["stocktwits_bull_ratio", "reddit_sentiment", "soc_msgs"]], how="left")
+        df["stocktwits_bull_ratio"] = df["stocktwits_bull_ratio"].ffill()
+        df["reddit_sentiment"] = df["reddit_sentiment"].ffill()
+        df["social_volume_ratio"] = df["soc_msgs"] / df["soc_msgs"].rolling(20, min_periods=1).mean()
+    else:
+        df["stocktwits_bull_ratio"] = np.nan
+        df["reddit_sentiment"] = np.nan
+        df["social_volume_ratio"] = np.nan
+
     # --- Labels: forward returns on adjusted close ---
     for h in horizons:
         df[f"y_fwd_return_{h}"] = ac.shift(-h) / ac - 1.0
@@ -129,6 +210,9 @@ def build_features(con: duckdb.DuckDBPyConnection, symbol: str, *, horizons: lis
         "vol_10d", "vol_20d",
         "price_ma5_ratio", "price_ma20_ratio", "price_ma60_ratio",
         "rsi_14", "vol_ratio_20d", "intraday_range",
+        "eps_surprise_pct", "rev_surprise_pct", "days_to_earnings",
+        "fed_hawkish_score", "fed_net_score", "fed_days_since",
+        "stocktwits_bull_ratio", "reddit_sentiment", "social_volume_ratio",
     ]
 
     out_rows = []
@@ -155,7 +239,10 @@ def build_features(con: duckdb.DuckDBPyConnection, symbol: str, *, horizons: lis
          ret_1d, ret_5d, ret_20d, ret_60d,
          vol_10d, vol_20d,
          price_ma5_ratio, price_ma20_ratio, price_ma60_ratio,
-         rsi_14, vol_ratio_20d, intraday_range)
+         rsi_14, vol_ratio_20d, intraday_range,
+         eps_surprise_pct, rev_surprise_pct, days_to_earnings,
+         fed_hawkish_score, fed_net_score, fed_days_since,
+         stocktwits_bull_ratio, reddit_sentiment, social_volume_ratio)
         SELECT symbol,
                CAST(date AS DATE) AS date,
                horizon,
@@ -169,7 +256,12 @@ def build_features(con: duckdb.DuckDBPyConnection, symbol: str, *, horizons: lis
                ret_1d, ret_5d, ret_20d, ret_60d,
                vol_10d, vol_20d,
                price_ma5_ratio, price_ma20_ratio, price_ma60_ratio,
-               rsi_14, vol_ratio_20d, intraday_range
+               rsi_14, vol_ratio_20d, intraday_range,
+               eps_surprise_pct, rev_surprise_pct,
+               CAST(days_to_earnings AS INTEGER),
+               fed_hawkish_score, fed_net_score,
+               CAST(fed_days_since AS INTEGER),
+               stocktwits_bull_ratio, reddit_sentiment, social_volume_ratio
         FROM tmp_feat
         """
     )

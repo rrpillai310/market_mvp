@@ -1,0 +1,10 @@
+{
+  "symbols": [
+    {"ticker": "SPY",  "type": "etf"},
+    {"ticker": "QQQ",  "type": "etf"},
+    {"ticker": "VXUS", "type": "etf"},
+    {"ticker": "XSD",  "type": "etf"},
+    {"ticker": "XLK",  "type": "etf"},
+    {"ticker": "XLE",  "type": "etf"}
+  ]
+}

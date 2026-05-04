@@ -11,7 +11,7 @@ st.title("🎯 Predictions")
 # ── Controls ──────────────────────────────────────────────────────────────────
 
 col_sym, col_h, _ = st.columns([1, 1, 3])
-symbol = col_sym.selectbox("Symbol", d.SYMBOLS)
+symbol = col_sym.selectbox("Symbol", d.get_symbols())
 horizon = col_h.selectbox("Horizon (days)", d.HORIZONS)
 
 st.divider()

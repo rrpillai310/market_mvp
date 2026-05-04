@@ -46,12 +46,15 @@ echo "[tft] Syncing data to DGX ($(du -sh "$DATA_DIR" | cut -f1))..." | tee -a "
 ssh "$DGX" "mkdir -p ~/data ~/models" 2>&1 | tee -a "$LOG"
 rsync -rz --no-perms --no-owner --no-group "$DATA_DIR/" "$DGX:~/data/" 2>&1 | tee -a "$LOG"
 
+# Read symbols from config (falls back to SPY QQQ VXUS XSD XLK if config is missing)
+SYMBOLS=$(python3 -c "import json,pathlib; c=json.loads(pathlib.Path('/Users/rakeshpillai/market_mvp/config/symbols.json').read_text()); print(' '.join(s['ticker'] for s in c['symbols']))" 2>/dev/null || echo "SPY QQQ VXUS XSD XLK")
+
 # 2. Pull latest code on DGX then train all symbols/horizons
-echo "[tft] Starting GPU training on DGX..." | tee -a "$LOG"
+echo "[tft] Starting GPU training on DGX for: $SYMBOLS..." | tee -a "$LOG"
 ssh "$DGX" "
     git -C ~/market_mvp pull --ff-only --quiet 2>&1 || true
     docker exec market_mvp python /workspace/market_mvp/train_dgx.py \
-        --symbols SPY QQQ VXUS XSD XLK \
+        --symbols $SYMBOLS \
         --horizons 5 20 \
         2>&1
 " 2>&1 | tee -a "$LOG"

@@ -14,7 +14,7 @@ st.set_page_config(
 )
 
 st.title("📈 Market MVP")
-st.caption("SPY / QQQ / VXUS / XSD / XLK forward-return predictor — LightGBM (Mac) + TFT (DGX Spark GPU)")
+st.caption("Forward-return predictor — LightGBM (Mac) + TFT (DGX Spark GPU)")
 
 st.divider()
 
@@ -32,7 +32,8 @@ st.subheader("Pipeline status")
 
 col1, col2, col3, col4 = st.columns(4)
 
-for sym, col in zip(["SPY", "QQQ"], [col1, col2]):
+_tracked = d.get_symbols()
+for sym, col in zip(_tracked[:2] if len(_tracked) >= 2 else _tracked, [col1, col2]):
     last = d.get_last_ingest_date(sym)
     col.metric(f"{sym} last ingest", last or "—")
 
@@ -47,8 +48,9 @@ st.divider()
 st.subheader("Saved models")
 
 any_model = False
-cols = st.columns(len(d.SYMBOLS) * len(d.HORIZONS))
-for i, sym in enumerate(d.SYMBOLS):
+_syms = d.get_symbols()
+cols = st.columns(len(_syms) * len(d.HORIZONS))
+for i, sym in enumerate(_syms):
     for j, h in enumerate(d.HORIZONS):
         col = cols[i * len(d.HORIZONS) + j]
         metrics = d.load_metrics(sym, h)
@@ -74,8 +76,8 @@ if not any_model:
 st.subheader("TFT models (DGX Spark)")
 
 any_tft = False
-tft_cols = st.columns(len(d.SYMBOLS) * len(d.HORIZONS))
-for i, sym in enumerate(d.SYMBOLS):
+tft_cols = st.columns(len(_syms) * len(d.HORIZONS))
+for i, sym in enumerate(_syms):
     for j, h in enumerate(d.HORIZONS):
         col = tft_cols[i * len(d.HORIZONS) + j]
         tft_m = d.load_tft_metrics(sym, h)

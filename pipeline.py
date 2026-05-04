@@ -67,9 +67,9 @@ def run_pipeline(
     # --- Step 2: EDGAR earnings ---
     if not skip_edgar:
         print("\n=== Step 2: EDGAR earnings (XBRL fast-path) ===")
-        from market_mvp.edgar import ingest_etf_holdings_earnings
+        from market_mvp.edgar import ingest_symbol_earnings
         for sym in symbols:
-            ingest_etf_holdings_earnings(con, sym)
+            ingest_symbol_earnings(con, sym)
         con.execute("CHECKPOINT")
 
     # --- Step 3: Fed minutes ---
