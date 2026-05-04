@@ -21,7 +21,8 @@ market_mvp/          ← Python package (run from parent dir)
   edgar.py           ← EDGAR XBRL: EPS + revenue for ETF holdings and single stocks
   fed.py             ← FOMC calendar scraper + hawkish/dovish keyword scoring + LLM
   social.py          ← StockTwits (free API) + Reddit (PRAW) daily sentiment
-  llm.py             ← Ollama client via OpenAI-compatible endpoint
+  llm.py             ← Dual-provider LLM client: Ollama (default) or Claude API (set LLM_PROVIDER)
+  storage.py         ← Path abstraction (DATA_DIR/MODELS_DIR env vars) + S3 sync helpers
   features.py        ← Feature engineering: all 30 sources → features_daily table
   train.py           ← LightGBM, walk-forward CV (5 folds), model persistence
   predict.py         ← Load saved model, score latest features row
@@ -49,6 +50,7 @@ pages/
 scripts/
   daily_pipeline.sh  ← launchd cron: reads symbols from config, runs LightGBM pipeline
   daily_tft.sh       ← called in background after LightGBM: rsync → DGX train → rsync back
+  aws_setup.sh       ← EC2 bootstrap: installs deps, clones repo, sets up systemd timer
 ```
 
 ## Data flow
@@ -88,8 +90,11 @@ cd /Users/rakeshpillai
 # Full pipeline
 python3 -m market_mvp.pipeline --symbols SPY QQQ
 
-# With LLM-powered Fed minutes analysis (uses deepseek-r1:70b on DGX Spark)
+# With LLM-powered Fed minutes analysis (uses whichever provider LLM_PROVIDER selects)
 python3 -m market_mvp.pipeline --symbols SPY QQQ --use-llm-fed
+
+# Use Claude instead of Ollama for this run without changing .env
+LLM_PROVIDER=claude python3 -m market_mvp.pipeline --symbols SPY --use-llm-fed
 
 # Fast test run — skip slow steps
 python3 -m market_mvp.pipeline --symbols SPY --skip-social --skip-fed --skip-edgar
@@ -111,27 +116,41 @@ Copy `.env.example` to `.env` and fill in:
 | Variable | Required | Default | Notes |
 |---|---|---|---|
 | `ALPHAVANTAGE_API_KEY` | Yes | — | Free tier: 25 req/day |
+| `LLM_PROVIDER` | No | `ollama` | `ollama` or `claude` — selects LLM backend in `llm.py` |
+| `ANTHROPIC_API_KEY` | If `LLM_PROVIDER=claude` | — | Anthropic API key |
+| `CLAUDE_MODEL` | No | `claude-opus-4-7` | Claude model for extraction + Fed analysis |
 | `OLLAMA_HOST` | No | `http://10.0.0.2:11434` | DGX Spark via direct 10GbE Ethernet |
 | `OLLAMA_MODEL` | No | `qwen3.6:latest` | For JSON extraction (fast, no chain-of-thought) |
 | `OLLAMA_MODEL_REASONING` | No | `deepseek-r1:70b` | For Fed minutes analysis |
+| `DATA_DIR` | No | `../data/` | Override DB/data path — useful on AWS with EBS mount |
+| `MODELS_DIR` | No | `../models/` | Override models path |
+| `S3_BUCKET` | No | — | Enables automatic data/model S3 sync before/after pipeline |
 | `REDDIT_CLIENT_ID` | No | — | Free app at reddit.com/prefs/apps |
 | `REDDIT_CLIENT_SECRET` | No | — | |
 | `REDDIT_USER_AGENT` | No | `market_mvp/1.0` | |
 
-## DGX Spark / Ollama
+## LLM backend (Ollama or Claude)
 
-The project uses a local DGX Spark (NVIDIA GB10 Grace Blackwell, CUDA 13.2, aarch64)
-connected via direct 10GbE Ethernet at `10.0.0.2`. Sub-millisecond latency.
+`llm.py` dispatches to either Ollama or the Anthropic Claude API based on `LLM_PROVIDER`.
+The public interface — `extract_json()` and `complete()` — is identical for both providers.
+All callers (`fed.py`, etc.) are unaffected by which provider is active.
 
-The Ollama client in `llm.py` uses:
-- 120s timeout on all requests
-- Exponential backoff retry (up to 3 attempts)
+**Ollama (default, `LLM_PROVIDER=ollama`):**
+- Connects to DGX Spark at `10.0.0.2` via direct 10GbE Ethernet. Sub-ms latency.
+- 120s timeout, exponential backoff retry (up to 3 attempts)
 - `qwen3.6:latest` for structured JSON extraction — `think: False` via `extra_body` disables
   chain-of-thought for instant responses (without this, extraction takes 40s+)
 - `deepseek-r1:70b` for Fed minutes (chain-of-thought reasoning, `think: True`)
+- If the DGX is offline, set `OLLAMA_HOST` to any other Ollama instance.
 
-If the DGX is offline, set `OLLAMA_HOST` to any other Ollama instance.
-EDGAR and Fed keyword scoring work fully offline.
+**Claude API (`LLM_PROVIDER=claude`):**
+- Uses `anthropic.Anthropic()` SDK — not the OpenAI-compat shim.
+- Default model: `claude-opus-4-7` (override with `CLAUDE_MODEL` env var).
+- System prompts use `cache_control: {"type": "ephemeral"}` for prompt caching.
+- Reasoning calls use `thinking: {"type": "adaptive"}` (replaces deepseek chain-of-thought).
+- Best choice on AWS EC2 where the DGX is not reachable.
+
+EDGAR and Fed keyword scoring always work fully offline regardless of LLM_PROVIDER.
 
 ## DGX Spark GPU training (Docker)
 
@@ -201,6 +220,7 @@ LightGBM on Mac Studio remains the primary production model; TFT runs alongside 
 | StockTwits | Bull/bear ratio | Yes | No |
 | Reddit (PRAW) | Sentiment | Yes | Yes (registration required) |
 | Ollama (DGX Spark) | LLM extraction + Fed analysis | Yes (self-hosted) | No |
+| Claude API (Anthropic) | LLM extraction + Fed analysis (alternative to Ollama) | No | Yes (`ANTHROPIC_API_KEY`) |
 
 ## Feature columns (30 total in FEATURE_COLS)
 
@@ -251,6 +271,9 @@ running the pipeline as a precaution; the GUI-triggered subprocess does not need
 - Feature columns that don't exist yet in the DB (e.g., social not yet ingested) are filled with 0.0 before model training. Do not drop rows for missing features.
 - The `FEATURE_COLS` list in `train.py` is the single source of truth for feature order. `features.py` must write exactly these columns to `features_daily`.
 - Never hardcode API keys. Always read from env vars.
+- Never hardcode DB or model paths — always use `storage.get_data_dir()` / `storage.get_models_dir()` so the same code works on Mac and AWS.
+- All LLM calls go through `llm.py:extract_json()` / `llm.py:complete()`. Never call `anthropic.Anthropic()` or `openai.OpenAI()` directly in other modules.
+- LLM features are always optional — every caller must work without LLM output (fall back to keyword scoring or None).
 - The `data/` and `models/` directories are gitignored. Never commit `.duckdb` or `.pkl` files.
 
 ## Streamlit UI
@@ -264,10 +287,11 @@ PYTHONPATH=/Users/rakeshpillai streamlit run /Users/rakeshpillai/market_mvp/app.
 - Uses `@st.cache_resource` for the DB connection (one read-only connection per process)
 - Uses `@st.cache_data(ttl=300)` for query results (5-minute cache)
 - DB opened read-only: `duckdb.connect(str(_DB_PATH), read_only=True)`
-- DB path: `Path(__file__).parent.parent / "data" / "market_mvp.duckdb"` (one level above repo)
-- Model path: `_MODELS_DIR / f"{symbol}_h{horizon}.pkl"` (also one level above repo)
+- DB path: derived from `storage.get_data_dir()` — respects `DATA_DIR` env var; defaults to one level above repo
+- Model path: derived from `storage.get_models_dir()` — respects `MODELS_DIR` env var
 - Metrics sidecar: `_MODELS_DIR / f"{symbol}_h{horizon}_metrics.json"`
 - Symbol config: `config/symbols.json` inside the repo
+- Tests still patch `market_mvp.ui_data._DB_PATH` and `market_mvp.ui_data._MODELS_DIR` by name — works regardless of how they were set
 
 Key functions:
 - `predict()` — LightGBM: loads `.pkl`, scores latest `features_daily` row

@@ -16,8 +16,10 @@ import duckdb
 import pandas as pd
 import streamlit as st
 
-_DB_PATH = Path(__file__).parent.parent / "data" / "market_mvp.duckdb"
-_MODELS_DIR = Path(__file__).parent.parent / "models"
+from market_mvp.storage import get_data_dir, get_models_dir
+
+_DB_PATH = get_data_dir() / "market_mvp.duckdb"
+_MODELS_DIR = get_models_dir()
 _CONFIG_PATH = Path(__file__).parent / "config" / "symbols.json"
 _PIPELINE_STATE = Path(__file__).parent / "config" / "pipeline_state.json"
 

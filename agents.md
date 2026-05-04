@@ -61,16 +61,57 @@ Read CLAUDE.md first for architecture context. This file covers agent-specific r
 - Edit `_build_model()` in `train.py`. Keep the LightGBM / sklearn fallback structure.
 - Do not remove the sklearn fallback — it enables testing without a GPU/LightGBM install.
 
-### Working with the Ollama LLM
-- All LLM calls go through `llm.py`. Never call `openai.OpenAI()` directly in other modules.
+### Working with the LLM (Ollama or Claude)
+
+`llm.py` is the only LLM entry point. Never call `anthropic.Anthropic()` or
+`openai.OpenAI()` directly in any other module. The public interface is:
+- `extract_json(prompt, *, system, model, reasoning, retries, timeout)` — structured JSON
+- `complete(prompt, *, system, model, reasoning, timeout)` — free-form text
+
+The active provider is controlled by `LLM_PROVIDER` env var (`ollama` default, `claude`).
+
+**When `LLM_PROVIDER=ollama`:**
 - Default model: `qwen3.6:latest` (extraction). Reasoning model: `deepseek-r1:70b` (Fed minutes).
 - Extraction calls use `extra_body={"think": False}` — without this, qwen3.6 does a slow
   chain-of-thought pass (40s+) before responding. Always pass `reasoning=False` for extraction.
 - Always pass `reasoning=True` for Fed/policy analysis tasks (uses deepseek-r1:70b).
+- The DGX Spark is on direct 10GbE Ethernet (`10.0.0.2`). Latency is sub-ms.
+
+**When `LLM_PROVIDER=claude`:**
+- Default model: `claude-opus-4-7` (override with `CLAUDE_MODEL` env var).
+- System prompts use `cache_control: {"type": "ephemeral"}` for prompt caching.
+- Reasoning calls use `thinking: {"type": "adaptive"}` — no `budget_tokens` needed.
+- Best choice on AWS where the DGX Spark is not reachable.
+
+**Both providers:**
 - LLM features are always optional — every caller must work without LLM output (fall back
   to keyword scoring or None values).
-- The DGX Spark is on direct 10GbE Ethernet (`10.0.0.2`). Latency is sub-ms.
-  `llm.py` handles retries; callers must not add their own retry loops.
+- `llm.py` handles retries; callers must not add their own retry loops.
+
+### Storage paths and AWS deployment
+
+DB and model paths are resolved through `storage.py` — never hardcode them.
+
+```python
+from market_mvp.storage import get_data_dir, get_models_dir
+db_path = get_data_dir() / "market_mvp.duckdb"   # respects DATA_DIR env var
+models_dir = get_models_dir()                      # respects MODELS_DIR env var
+```
+
+Defaults (when env vars not set) resolve to `../data/` and `../models/` relative to the
+repo — identical to the old hardcoded paths, so Mac behavior is unchanged.
+
+**S3 sync (AWS only):** `pipeline.py` calls `maybe_sync_from_s3()` at startup and
+`maybe_sync_to_s3()` after completion. Both are no-ops unless `S3_BUCKET` is set.
+Do not add S3 calls anywhere else.
+
+**EC2 vs Mac differences:**
+| | Mac Studio | AWS EC2 |
+|---|---|---|
+| LLM | `LLM_PROVIDER=ollama` (DGX Spark) | `LLM_PROVIDER=claude` |
+| Cron | launchd `.plist` | systemd timer (`scripts/aws_setup.sh`) |
+| Paths | default `../data/`, `../models/` | `DATA_DIR=/data`, `MODELS_DIR=/data/models` |
+| Persistence | local filesystem | S3 sync via `S3_BUCKET` |
 
 ### Working with the DGX Spark GPU
 - GPU training uses Docker (`nvcr.io/nvidia/pytorch:25.03-py3`). No PyTorch CUDA wheels
@@ -210,8 +251,10 @@ Do not read `pipeline_state.json` directly — use `is_pipeline_running()`.
 - Do not use `rsync --info=progress2` on macOS — the system ships `openrsync` (not GNU
   rsync) which does not support that flag and exits with help text, silently skipped by tee.
   Use `rsync -rz --no-perms --no-owner --no-group` for Mac→DGX transfers.
-- Do not call Ollama extraction functions without `reasoning=False` / `think: False` —
-  qwen3.6 runs 40s+ chain-of-thought by default, making extraction impractically slow.
+- Do not call LLM extraction functions without `reasoning=False` — when using Ollama,
+  qwen3.6 runs 40s+ chain-of-thought by default without this flag.
+- Do not call `anthropic.Anthropic()` or `openai.OpenAI()` directly outside `llm.py`.
+- Do not hardcode DB or model paths — always use `storage.get_data_dir()` / `storage.get_models_dir()`.
 - Do not load the TFT `.ckpt` file in Streamlit or `ui_data.py` — the Mac has no GPU and
   loading pytorch-forecasting there adds a heavy optional dependency. Always use the
   pre-computed `_tft_pred.json` written by `train_dgx.py` on the DGX.
@@ -231,7 +274,9 @@ Do not read `pipeline_state.json` directly — use `is_pipeline_running()`.
 | TFT predictions served as JSON, not live inference | `ui_data.predict_tft()` reads `_tft_pred.json` |
 | No network in tests | `conftest.py` fixtures + mocking |
 | SEC rate limit respected | `edgar.py:_get()` sleeps 0.12s |
-| Ollama calls have 120s timeout + retries | `llm.py:extract_json` |
+| LLM calls have 120s timeout + retries | `llm.py:extract_json` (both Ollama and Claude) |
+| LLM provider switchable without code changes | `LLM_PROVIDER=ollama\|claude` env var |
+| DB and model paths configurable via env vars | `storage.get_data_dir()` / `get_models_dir()` |
 
 ## Running tests
 

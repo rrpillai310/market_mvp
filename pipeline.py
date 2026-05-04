@@ -18,6 +18,7 @@ except ImportError:
 
 from market_mvp.alpha_vantage import AlphaVantageClient
 from market_mvp.db import DB, init_db
+from market_mvp.storage import get_data_dir, get_models_dir, maybe_sync_from_s3, maybe_sync_to_s3
 from market_mvp.ingest import (
     ingest_daily_adjusted,
     ingest_news_sentiment,
@@ -42,6 +43,10 @@ def run_pipeline(
     use_llm_fed: bool,
     news_limit: int,
 ) -> None:
+    # Sync data and models from S3 before pipeline starts (no-op if S3_BUCKET not set)
+    maybe_sync_from_s3(db_path.parent, "data")
+    maybe_sync_from_s3(models_dir, "models")
+
     db = DB(path=db_path)
     con = db.connect()
     init_db(con)
@@ -113,11 +118,15 @@ def run_pipeline(
     con.close()
     print("\n=== Pipeline complete. ===")
 
+    # Sync data and models back to S3 (no-op if S3_BUCKET not set)
+    maybe_sync_to_s3(db_path.parent, "data")
+    maybe_sync_to_s3(models_dir, "models")
+
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Run full market_mvp pipeline.")
-    ap.add_argument("--db", default="data/market_mvp.duckdb")
-    ap.add_argument("--models-dir", default="models")
+    ap.add_argument("--db", default=str(get_data_dir() / "market_mvp.duckdb"))
+    ap.add_argument("--models-dir", default=str(get_models_dir()))
     ap.add_argument("--symbols", nargs="+", default=["SPY", "QQQ"])
     ap.add_argument("--horizons", nargs="+", type=int, default=[5, 20])
     ap.add_argument("--throttle-secs", type=float, default=12.5)
@@ -126,7 +135,8 @@ if __name__ == "__main__":
     ap.add_argument("--skip-edgar", action="store_true")
     ap.add_argument("--skip-fed", action="store_true")
     ap.add_argument("--skip-social", action="store_true")
-    ap.add_argument("--use-llm-fed", action="store_true", help="Use Ollama (deepseek-r1:70b) to summarize Fed minutes")
+    ap.add_argument("--use-llm-fed", action="store_true",
+                    help="Summarize Fed minutes with LLM (provider set by LLM_PROVIDER env var: ollama or claude)")
     ap.add_argument("--news-limit", type=int, default=200)
     ns = ap.parse_args()
 
