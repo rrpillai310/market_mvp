@@ -17,10 +17,16 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import warnings
+
 import duckdb
 import numpy as np
 import pandas as pd
 import torch
+
+# pytorch-forecasting's EncoderNormalizer passes numpy arrays to a sklearn
+# StandardScaler that was fitted on a DataFrame — the names mismatch is harmless.
+warnings.filterwarnings("ignore", message="X does not have valid feature names")
 
 DB_PATH = Path("/workspace/data/market_mvp.duckdb")
 MODELS_DIR = Path("/workspace/models")
