@@ -22,7 +22,11 @@ import warnings
 import duckdb
 import numpy as np
 import pandas as pd
-import torch
+
+try:
+    import torch
+except ImportError:
+    torch = None  # type: ignore[assignment]
 
 # pytorch-forecasting's EncoderNormalizer passes numpy arrays to a sklearn
 # StandardScaler that was fitted on a DataFrame — the names mismatch is harmless.

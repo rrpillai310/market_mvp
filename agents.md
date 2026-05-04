@@ -68,6 +68,10 @@ Read CLAUDE.md first for architecture context. This file covers agent-specific r
 ### Working with the DGX Spark GPU
 - GPU training uses Docker (`nvcr.io/nvidia/pytorch:25.03-py3`). No PyTorch CUDA wheels
   exist for aarch64 — never attempt `pip install torch` outside the container.
+- `import lightning.pytorch` **must come before** `import pytorch_forecasting` inside any
+  function that uses `Trainer`. The NGC container ships `pytorch_lightning`; pytorch-forecasting
+  1.x uses `lightning.pytorch`. Mixing them makes `Trainer` reject the model with a
+  "must be a LightningModule" error even though TFT is one.
 - Container name is `market_mvp`. Start it with `docker start -ai market_mvp`.
 - The container mounts: `~/market_mvp`, `~/data`, `~/models` — changes inside persist.
 - Always verify GPU access: `python -c "import torch; print(torch.cuda.is_available())"`.
@@ -181,6 +185,9 @@ Read CLAUDE.md first for architecture context. This file covers agent-specific r
   a shell that hasn't sourced `~/.zshrc`.
 - Do not attempt `pip install torch` or `conda install pytorch` on the DGX outside Docker —
   there are no PyTorch CUDA wheels for aarch64. Always use the NGC container.
+- Do not use `rsync --info=progress2` on macOS — the system ships `openrsync` (not GNU
+  rsync) which does not support that flag and exits with help text, silently skipped by tee.
+  Use `rsync -rz --no-perms --no-owner --no-group` for Mac→DGX transfers.
 - Do not call Ollama extraction functions without `reasoning=False` / `think: False` —
   qwen3.6 runs 40s+ chain-of-thought by default, making extraction impractically slow.
 - Do not load the TFT `.ckpt` file in Streamlit or `ui_data.py` — the Mac has no GPU and

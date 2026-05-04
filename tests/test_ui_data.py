@@ -300,6 +300,59 @@ def test_predict_result_has_required_keys(mock_models_dir, mock_con, loaded_feat
     assert required.issubset(result.keys())
 
 
+# ── predict_tft ───────────────────────────────────────────────────────────────
+
+def test_predict_tft_returns_none_when_file_missing(tmp_path):
+    with patch("market_mvp.ui_data._MODELS_DIR", tmp_path):
+        assert uid.predict_tft("SPY", 5) is None
+
+
+def test_predict_tft_reads_json_when_file_exists(tmp_path):
+    payload = {
+        "symbol": "SPY", "horizon": 5, "as_of_date": "2024-01-15",
+        "predicted_return": 0.032, "direction": "UP",
+        "p10": -0.01, "p90": 0.07, "model": "tft",
+        "val_loss": 0.0012, "checkpoint": "/models/SPY_h5_tft.ckpt",
+        "generated_at": "2024-01-15T10:00:00+00:00",
+    }
+    pred_file = tmp_path / "SPY_h5_tft_pred.json"
+    pred_file.write_text(json.dumps(payload))
+
+    with patch("market_mvp.ui_data._MODELS_DIR", tmp_path):
+        result = uid.predict_tft("SPY", 5)
+
+    assert result is not None
+    assert result["symbol"] == "SPY"
+    assert result["direction"] == "UP"
+    assert result["predicted_return"] == pytest.approx(0.032)
+
+
+def test_predict_tft_returns_none_for_different_symbol(tmp_path):
+    payload = {"symbol": "SPY", "horizon": 5, "predicted_return": 0.01,
+               "direction": "UP", "model": "tft"}
+    (tmp_path / "SPY_h5_tft_pred.json").write_text(json.dumps(payload))
+
+    with patch("market_mvp.ui_data._MODELS_DIR", tmp_path):
+        assert uid.predict_tft("QQQ", 5) is None
+
+
+def test_predict_tft_has_required_keys(tmp_path):
+    payload = {
+        "symbol": "QQQ", "horizon": 20, "as_of_date": "2024-01-15",
+        "predicted_return": -0.01, "direction": "DOWN", "p10": -0.05,
+        "p90": 0.02, "model": "tft", "val_loss": 0.002,
+        "checkpoint": "/models/QQQ_h20_tft.ckpt",
+        "generated_at": "2024-01-15T10:00:00+00:00",
+    }
+    (tmp_path / "QQQ_h20_tft_pred.json").write_text(json.dumps(payload))
+
+    with patch("market_mvp.ui_data._MODELS_DIR", tmp_path):
+        result = uid.predict_tft("QQQ", 20)
+
+    required = {"symbol", "horizon", "predicted_return", "direction"}
+    assert required.issubset(result.keys())
+
+
 # ── get_options ───────────────────────────────────────────────────────────────
 
 def test_get_options_empty_when_no_data(mock_con):

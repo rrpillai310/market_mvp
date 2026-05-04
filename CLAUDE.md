@@ -248,12 +248,14 @@ cd /Users/rakeshpillai/market_mvp
 pytest tests/ -v
 ```
 
-143 tests total. All use in-memory DuckDB. No network calls. No API keys needed.
+All use in-memory DuckDB. No network calls. No API keys needed.
+torch/pytorch-forecasting tests in `test_train_dgx.py` auto-skip on Mac (no torch).
 
 Key test files:
 - `tests/conftest.py` — shared fixtures (`con`, `loaded_features`, etc.)
-- `tests/test_ui_data.py` — 32 tests for `ui_data.py` (patches `_con()`, `_DB_PATH`, `_MODELS_DIR`)
-- `tests/test_ui_pages.py` — 21 tests using `streamlit.testing.v1.AppTest` (patches `ui_data.*`)
+- `tests/test_train_dgx.py` — `_prep()` data pipeline + `_save_prediction()` JSON output; torch-dependent tests skip on Mac
+- `tests/test_ui_data.py` — `ui_data.py` including `predict_tft()` (patches `_con()`, `_DB_PATH`, `_MODELS_DIR`)
+- `tests/test_ui_pages.py` — Streamlit pages using `streamlit.testing.v1.AppTest` (patches `ui_data.*`)
 
 Cache clearing: `test_ui_data.py` has an `autouse` fixture that calls `fn.clear()` on all
 `@st.cache_data` functions between tests so patches take effect.
