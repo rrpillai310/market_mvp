@@ -22,6 +22,7 @@ market_mvp/          ← Python package (run from parent dir)
   fed.py             ← FOMC calendar scraper + hawkish/dovish keyword scoring + LLM
   social.py          ← StockTwits (free API) + Reddit (PRAW) daily sentiment
   llm.py             ← Dual-provider LLM client: Ollama (default) or Claude API (set LLM_PROVIDER)
+  analyst.py         ← Claude tool-use agent: 6 DB tools → qualitative market commentary
   storage.py         ← Path abstraction (DATA_DIR/MODELS_DIR env vars) + S3 sync helpers
   features.py        ← Feature engineering: all 30 sources → features_daily table
   train.py           ← LightGBM, walk-forward CV (5 folds), model persistence
@@ -95,6 +96,9 @@ python3 -m market_mvp.pipeline --symbols SPY QQQ --use-llm-fed
 
 # Use Claude instead of Ollama for this run without changing .env
 LLM_PROVIDER=claude python3 -m market_mvp.pipeline --symbols SPY --use-llm-fed
+
+# Run Claude analyst agent after training (Claude only)
+LLM_PROVIDER=claude python3 -m market_mvp.pipeline --symbols SPY --skip-social --analyst
 
 # Fast test run — skip slow steps
 python3 -m market_mvp.pipeline --symbols SPY --skip-social --skip-fed --skip-edgar
@@ -272,8 +276,8 @@ running the pipeline as a precaution; the GUI-triggered subprocess does not need
 - The `FEATURE_COLS` list in `train.py` is the single source of truth for feature order. `features.py` must write exactly these columns to `features_daily`.
 - Never hardcode API keys. Always read from env vars.
 - Never hardcode DB or model paths — always use `storage.get_data_dir()` / `storage.get_models_dir()` so the same code works on Mac and AWS.
-- All LLM calls go through `llm.py:extract_json()` / `llm.py:complete()`. Never call `anthropic.Anthropic()` or `openai.OpenAI()` directly in other modules.
-- LLM features are always optional — every caller must work without LLM output (fall back to keyword scoring or None).
+- All single-shot LLM calls go through `llm.py:extract_json()` / `llm.py:complete()`. Never call `anthropic.Anthropic()` or `openai.OpenAI()` directly in other modules — except `analyst.py`, which owns the Claude tool-use agent loop and calls `anthropic.Anthropic()` directly by design.
+- LLM features are always optional — every caller must work without LLM output (fall back to keyword scoring or None). `analyst.py` returns `None` gracefully when `LLM_PROVIDER != claude`.
 - The `data/` and `models/` directories are gitignored. Never commit `.duckdb` or `.pkl` files.
 
 ## Streamlit UI
@@ -296,6 +300,7 @@ PYTHONPATH=/Users/rakeshpillai streamlit run /Users/rakeshpillai/market_mvp/app.
 Key functions:
 - `predict()` — LightGBM: loads `.pkl`, scores latest `features_daily` row
 - `predict_tft()` — reads `{symbol}_h{horizon}_tft_pred.json` (no GPU needed on Mac)
+- `load_analyst_commentary()` — reads `{symbol}_h{horizon}_analyst.json` written by `analyst.py`
 - `trigger_pipeline(ticker)` — spawns pipeline subprocess, writes PID to `pipeline_state.json`
 - `is_pipeline_running()` — checks PID via `os.kill(pid, 0)`
 - `add_symbol(ticker, type)` / `remove_symbol(ticker)` — edits `config/symbols.json`

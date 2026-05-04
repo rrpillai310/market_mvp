@@ -147,6 +147,35 @@ Do not add S3 calls anywhere else.
 - The XBRL fast-path covers ~90% of modern filings. Playwright/OCR fallback is not yet built.
   If a company's facts are missing, log and skip — do not raise.
 
+### Working with the Claude analyst agent (analyst.py)
+
+`analyst.py` is the one place in the codebase that runs a multi-turn Claude tool-use loop.
+It is intentionally separate from `llm.py`, which handles stateless single-shot calls.
+
+**How it works:**
+1. Claude is given 6 tools that query the live DuckDB and model JSON files:
+   `get_prediction`, `get_features`, `get_price_history`, `get_fed_score`,
+   `get_news_sentiment`, `get_options_data`
+2. Claude calls whichever tools it needs, inspects the results, and iterates
+3. When it has enough information it writes a 2-4 sentence qualitative commentary
+4. Output is saved to `{symbol}_h{horizon}_analyst.json` in `MODELS_DIR`
+
+**Key rules:**
+- `analyst.analyze()` returns `None` when `LLM_PROVIDER != claude` — never raise, never block
+- All tool implementations are read-only DB queries. Never write to the DB from a tool
+- `analyst.py` may call `anthropic.Anthropic()` directly — it owns the agent loop
+- Do not call `analyst.analyze()` from Streamlit pages; it is pipeline-only. The dashboard
+  reads the pre-computed JSON via `ui_data.load_analyst_commentary()`
+- The system prompt is marked `cache_control: ephemeral` for prompt caching across calls
+
+**Testing:** Mock `anthropic.Anthropic` (not `market_mvp.analyst.anthropic` — the import
+is lazy). Build mock response objects with `stop_reason`, `content`, `type`, `text`, `id`.
+
+**Trigger from pipeline:**
+```bash
+LLM_PROVIDER=claude python3 -m market_mvp.pipeline --symbols SPY --skip-social --analyst
+```
+
 ### Working with the Fed scraper
 - `fed.py` scrapes `federalreserve.gov`. Documents are cached in `fed_minutes` by
   `(meeting_date, document_type)`. The scraper skips already-cached entries.
@@ -253,7 +282,7 @@ Do not read `pipeline_state.json` directly — use `is_pipeline_running()`.
   Use `rsync -rz --no-perms --no-owner --no-group` for Mac→DGX transfers.
 - Do not call LLM extraction functions without `reasoning=False` — when using Ollama,
   qwen3.6 runs 40s+ chain-of-thought by default without this flag.
-- Do not call `anthropic.Anthropic()` or `openai.OpenAI()` directly outside `llm.py`.
+- Do not call `anthropic.Anthropic()` directly outside `llm.py` or `analyst.py`. `analyst.py` owns the tool-use loop and is the only permitted exception.
 - Do not hardcode DB or model paths — always use `storage.get_data_dir()` / `storage.get_models_dir()`.
 - Do not load the TFT `.ckpt` file in Streamlit or `ui_data.py` — the Mac has no GPU and
   loading pytorch-forecasting there adds a heavy optional dependency. Always use the
@@ -277,6 +306,8 @@ Do not read `pipeline_state.json` directly — use `is_pipeline_running()`.
 | LLM calls have 120s timeout + retries | `llm.py:extract_json` (both Ollama and Claude) |
 | LLM provider switchable without code changes | `LLM_PROVIDER=ollama\|claude` env var |
 | DB and model paths configurable via env vars | `storage.get_data_dir()` / `get_models_dir()` |
+| Analyst commentary is pre-computed, not live | `analyst.py` writes JSON; dashboard reads it |
+| Analyst agent returns None gracefully | When `LLM_PROVIDER != claude` or on any error |
 
 ## Running tests
 

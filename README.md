@@ -1,6 +1,6 @@
 # market_mvp
 
-A hobbyist ML pipeline for any ticker (ETF or single stock): pulls price, options, earnings, Fed minutes, and social sentiment into a DuckDB database, trains a LightGBM model locally and a Temporal Fusion Transformer on the DGX Spark GPU. The Streamlit dashboard shows both model predictions side by side. Add new symbols via the GUI — the pipeline runs automatically in the background.
+A ML pipeline for any ticker (ETF or single stock): pulls price, options, earnings, Fed minutes, and social sentiment into a DuckDB database, trains a LightGBM model locally and a Temporal Fusion Transformer on the DGX Spark GPU. The Streamlit dashboard shows both model predictions side by side. Add new symbols via the GUI — the pipeline runs automatically in the background.
 
 Runs on **Mac Studio** or **AWS EC2** — same codebase, configured via env vars.
 
@@ -66,6 +66,9 @@ python3 -m market_mvp.pipeline --symbols SPY QQQ VXUS XSD XLK --skip-social --us
 # Switch to Claude for LLM calls without changing .env
 LLM_PROVIDER=claude python3 -m market_mvp.pipeline --symbols SPY --use-llm-fed
 
+# Claude analyst agent — qualitative commentary after training (Claude only)
+LLM_PROVIDER=claude python3 -m market_mvp.pipeline --symbols SPY --skip-social --analyst
+
 # EDGAR + features + train only (skip ingestion)
 python3 -m market_mvp.pipeline --symbols SPY QQQ VXUS XSD XLK --skip-social --skip-news --skip-options --skip-fed
 
@@ -90,7 +93,7 @@ Opens at `http://localhost:8501`. Also accessible remotely via **Tailscale** at 
 **Pages:**
 - **Home** — pipeline status, LightGBM + TFT model cards for all tracked symbols
 - **0 · Manage Tickers** — add any ETF or single stock; validates via yfinance; triggers data pull + feature build + model train in background; auto-refreshes until done
-- **1 · Predictions** — LightGBM and TFT predictions side by side for selected symbol/horizon
+- **1 · Predictions** — LightGBM and TFT predictions side by side; Claude analyst commentary (if `--analyst` was run)
 - **2 · Signals** — price chart, RSI, options, news sentiment, Fed, social
 - **3 · Performance** — walk-forward fold accuracy, feature importance, actual-vs-predicted scatter
 
