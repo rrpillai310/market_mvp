@@ -11,14 +11,21 @@ Read CLAUDE.md first for architecture context. This file covers agent-specific r
 2. **Single source of truth for features:** `FEATURE_COLS` list in `train.py:13`.
    If you add a feature anywhere, you must add it there AND in `features_daily` schema
    in `db.py` AND write it from `features.py`. All three or none.
+   `FEATURE_COLS` in `train_dgx.py` must be kept identical to `train.py` — divergence
+   silently causes LightGBM and TFT to train on different feature sets.
 
-3. **DuckDB is the only persistence layer.** No Redis, no Postgres, no flat files except
-   model artifacts (`.pkl`, `.ckpt`, `_pred.json`). Keep it that way.
+3. **Single source of truth for tracked symbols:** `config/symbols.json`.
+   `ui_data.get_symbols()` reads it dynamically. `daily_pipeline.sh` and `daily_tft.sh`
+   read it at runtime. Never hardcode a symbol list anywhere else.
 
-4. **All ingestion is idempotent.** Every `INSERT` uses `INSERT OR REPLACE`.
+4. **DuckDB is the only persistence layer.** No Redis, no Postgres, no flat files except
+   model artifacts (`.pkl`, `.ckpt`, `_pred.json`) and `pipeline_state.json` (PID tracking).
+   Keep it that way.
+
+5. **All ingestion is idempotent.** Every `INSERT` uses `INSERT OR REPLACE`.
    Every fetch checks `api_cache` first. Never break this — re-running must be safe.
 
-5. **No network calls in tests.** Mock everything at the HTTP boundary.
+6. **No network calls in tests.** Mock everything at the HTTP boundary.
    `tests/conftest.py` provides in-memory DuckDB fixtures. Use them.
 
 ## Task playbook
@@ -116,6 +123,21 @@ Read CLAUDE.md first for architecture context. This file covers agent-specific r
   Tests should not print (use capsys or suppress in conftest if needed).
 - **Imports:** stdlib → third-party → local (`market_mvp.*`), separated by blank lines.
 - **No f-strings with complex expressions.** Assign to a variable first.
+
+### Adding a new symbol via the GUI (how it works)
+
+`pages/0_Manage_Tickers.py` orchestrates this flow:
+1. User types a ticker → validated with `yfinance.Ticker.fast_info` (must have `lastPrice`)
+2. `quoteType` from `fast_info` determines `"etf"` vs `"stock"`
+3. `ui_data.add_symbol(ticker, type)` writes to `config/symbols.json`
+4. If "Pull data & train immediately" checked → `ui_data.trigger_pipeline(ticker)` called
+5. `trigger_pipeline()` spawns: `python -m market_mvp.pipeline --symbols <ticker> --skip-social`
+   as a `subprocess.Popen` and writes `{"pid": ..., "symbol": ..., "started_at": ...}` to
+   `config/pipeline_state.json`
+6. Page auto-refreshes every 8s via `time.sleep(8); st.rerun()` while `is_pipeline_running()`
+
+Do not call `trigger_pipeline()` from any module other than UI pages.
+Do not read `pipeline_state.json` directly — use `is_pipeline_running()`.
 
 ### Adding a new Streamlit page
 

@@ -5,9 +5,11 @@ Project context for Claude Code. Read this before touching any file.
 ## What this is
 
 A hobbyist ML pipeline that turns price, options, earnings, Fed minutes, and social
-sentiment into daily features for SPY/QQQ/VXUS/XSD/XLK, trains a walk-forward LightGBM
-model on the Mac Studio, and (in progress) a Temporal Fusion Transformer on the DGX Spark
-GPU. No live trading. No external DB. Everything lives in a single DuckDB file.
+sentiment into daily features for any ticker (ETF or single stock) listed in
+`config/symbols.json`. Trains a walk-forward LightGBM model on the Mac Studio and a
+Temporal Fusion Transformer on the DGX Spark GPU. New symbols can be added directly from
+the Streamlit GUI — the pipeline runs automatically in the background. No live trading.
+No external DB. Everything lives in a single DuckDB file.
 
 ## Repo layout
 
@@ -16,28 +18,37 @@ market_mvp/          ← Python package (run from parent dir)
   alpha_vantage.py   ← throttled Alpha Vantage HTTP client
   db.py              ← DuckDB schema + connection helper
   ingest.py          ← yfinance ingestion: prices, options PCR/VOI; AV: news sentiment
-  edgar.py           ← EDGAR XBRL fast-path: EPS + revenue for top ETF holdings
+  edgar.py           ← EDGAR XBRL: EPS + revenue for ETF holdings and single stocks
   fed.py             ← FOMC calendar scraper + hawkish/dovish keyword scoring + LLM
   social.py          ← StockTwits (free API) + Reddit (PRAW) daily sentiment
   llm.py             ← Ollama client via OpenAI-compatible endpoint
-  features.py        ← Feature engineering: all sources → features_daily table
+  features.py        ← Feature engineering: all 30 sources → features_daily table
   train.py           ← LightGBM, walk-forward CV (5 folds), model persistence
   predict.py         ← Load saved model, score latest features row
   pipeline.py        ← Single orchestrator: runs all 6 steps end-to-end
-  ui_data.py         ← Shared Streamlit data layer (cached queries, model loading)
+  ui_data.py         ← Shared Streamlit data layer (cached queries, model loading,
+                        symbol config management, pipeline subprocess control)
   tests/             ← pytest suite (no network calls, in-memory DuckDB)
   data/              ← DuckDB file lives here (gitignored)
   models/            ← Saved .pkl + .ckpt models, metrics + prediction JSON (gitignored)
   requirements.txt
   .env.example
 
+config/
+  symbols.json       ← source of truth for tracked symbols (ETF + single stocks)
+
 train_dgx.py         ← TFT training on DGX Spark GPU (run inside NGC container)
 
 app.py               ← Streamlit home page (pipeline status, model summary cards)
 pages/
+  0_Manage_Tickers.py ← Add/remove any ticker; triggers pipeline in background
   1_Predictions.py   ← Big UP/DOWN card, feature importance, feature snapshot
   2_Signals.py       ← Candlestick, RSI, momentum, options, news, Fed, social
   3_Performance.py   ← Walk-forward fold charts, feature importance, actual vs predicted
+
+scripts/
+  daily_pipeline.sh  ← launchd cron: reads symbols from config, runs LightGBM pipeline
+  daily_tft.sh       ← called in background after LightGBM: rsync → DGX train → rsync back
 ```
 
 ## Data flow
@@ -191,7 +202,7 @@ LightGBM on Mac Studio remains the primary production model; TFT runs alongside 
 | Reddit (PRAW) | Sentiment | Yes | Yes (registration required) |
 | Ollama (DGX Spark) | LLM extraction + Fed analysis | Yes (self-hosted) | No |
 
-## Feature columns (21 total in FEATURE_COLS)
+## Feature columns (30 total in FEATURE_COLS)
 
 Options: `pcr`, `pcr_chg_5`, `voi`, `voi_chg_5`
 News: `news_sent`, `news_sent_chg_5`, `news_count`
@@ -204,9 +215,32 @@ Earnings: `eps_surprise_pct`, `rev_surprise_pct`, `days_to_earnings`
 Fed: `fed_hawkish_score`, `fed_net_score`, `fed_days_since`
 Social: `stocktwits_bull_ratio`, `reddit_sentiment`, `social_volume_ratio`
 
+All 30 columns are computed and written by `features.py` for every tracked symbol.
+Columns from optional sources (social not ingested, EDGAR missing a ticker) are
+forward-filled then zero-filled — never dropped.
+
+## Tracked symbols
+
+`config/symbols.json` is the authoritative list of symbols. Format:
+```json
+{"symbols": [{"ticker": "SPY", "type": "etf"}, {"ticker": "NVDA", "type": "stock"}]}
+```
+
+- ETFs use `edgar.py:ETF_HOLDINGS` to look up constituent tickers for earnings data.
+- Single stocks (`"type": "stock"`) fetch their own earnings directly.
+- `ui_data.get_symbols()` reads this file dynamically — no restart needed.
+- `ui_data.add_symbol()` / `remove_symbol()` write to this file; the daily scripts pick
+  up changes automatically on next run.
+- GUI addition (page 0_Manage_Tickers.py) validates via yfinance and triggers
+  `ui_data.trigger_pipeline()`, which spawns a background subprocess.
+
 ## DuckDB concurrency
 
-DuckDB allows only **one writer at a time**. The pipeline opens the DB in read-write mode; Streamlit opens it read-only. This works fine as long as you don't try to run the pipeline while Streamlit is open — doing so causes a lock error. Always stop Streamlit (Ctrl+C) before running the pipeline, then restart it after.
+DuckDB allows only **one writer at a time**. The pipeline opens the DB in read-write mode;
+Streamlit opens it read-only. Multiple concurrent read-only connections are fine.
+A background pipeline subprocess (triggered from the GUI) can run while Streamlit is open
+because Streamlit always uses `read_only=True`. The daily cron script stops Streamlit before
+running the pipeline as a precaution; the GUI-triggered subprocess does not need to.
 
 ## Code conventions
 
@@ -233,10 +267,14 @@ PYTHONPATH=/Users/rakeshpillai streamlit run /Users/rakeshpillai/market_mvp/app.
 - DB path: `Path(__file__).parent.parent / "data" / "market_mvp.duckdb"` (one level above repo)
 - Model path: `_MODELS_DIR / f"{symbol}_h{horizon}.pkl"` (also one level above repo)
 - Metrics sidecar: `_MODELS_DIR / f"{symbol}_h{horizon}_metrics.json"`
+- Symbol config: `config/symbols.json` inside the repo
 
-`predict()` calls `load_model()` and scores the latest row from `features_daily` (LightGBM).
-`predict_tft()` reads `models/{symbol}_h{horizon}_tft_pred.json` written by `train_dgx.py` —
-no GPU or pytorch-forecasting install needed on the Mac.
+Key functions:
+- `predict()` — LightGBM: loads `.pkl`, scores latest `features_daily` row
+- `predict_tft()` — reads `{symbol}_h{horizon}_tft_pred.json` (no GPU needed on Mac)
+- `trigger_pipeline(ticker)` — spawns pipeline subprocess, writes PID to `pipeline_state.json`
+- `is_pipeline_running()` — checks PID via `os.kill(pid, 0)`
+- `add_symbol(ticker, type)` / `remove_symbol(ticker)` — edits `config/symbols.json`
 
 **iOS access:** Open `http://<mac-local-ip>:8501` in Safari on the same Wi-Fi.
 Find your Mac IP with: `ipconfig getifaddr en0`
@@ -248,8 +286,8 @@ cd /Users/rakeshpillai/market_mvp
 pytest tests/ -v
 ```
 
-All use in-memory DuckDB. No network calls. No API keys needed.
-torch/pytorch-forecasting tests in `test_train_dgx.py` auto-skip on Mac (no torch).
+158 tests total. All use in-memory DuckDB. No network calls. No API keys needed.
+torch/pytorch-forecasting tests in `test_train_dgx.py` auto-skip on Mac (5 skipped).
 
 Key test files:
 - `tests/conftest.py` — shared fixtures (`con`, `loaded_features`, etc.)

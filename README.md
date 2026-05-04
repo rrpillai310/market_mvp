@@ -1,6 +1,6 @@
 # market_mvp
 
-A hobbyist ML pipeline for SPY/QQQ/VXUS/XSD/XLK: pulls price, options, earnings, Fed minutes, and social sentiment into a DuckDB database, trains a LightGBM model locally and a Temporal Fusion Transformer on the DGX Spark GPU. The Streamlit dashboard shows both model predictions side by side.
+A hobbyist ML pipeline for any ticker (ETF or single stock): pulls price, options, earnings, Fed minutes, and social sentiment into a DuckDB database, trains a LightGBM model locally and a Temporal Fusion Transformer on the DGX Spark GPU. The Streamlit dashboard shows both model predictions side by side. Add new symbols via the GUI — the pipeline runs automatically in the background.
 
 ---
 
@@ -77,7 +77,14 @@ Opens at `http://localhost:8501`. Also accessible remotely via **Tailscale** at 
 
 **iPhone / iPad (same Wi-Fi):** `ipconfig getifaddr en0` → open `http://<mac-ip>:8501` in Safari.
 
-> Stop Streamlit before running the pipeline. Restart it after.
+**Pages:**
+- **Home** — pipeline status, LightGBM + TFT model cards for all tracked symbols
+- **0 · Manage Tickers** — add any ETF or single stock; validates via yfinance; triggers data pull + feature build + model train in background; auto-refreshes until done
+- **1 · Predictions** — LightGBM and TFT predictions side by side for selected symbol/horizon
+- **2 · Signals** — price chart, RSI, options, news sentiment, Fed, social
+- **3 · Performance** — walk-forward fold accuracy, feature importance, actual-vs-predicted scatter
+
+> Stop the dashboard before running the pipeline manually (the daily cron does this automatically). The GUI-triggered pipeline can run while the dashboard is open.
 
 ---
 
@@ -174,21 +181,25 @@ cd /Users/rakeshpillai/market_mvp
 pytest tests/ -v
 ```
 
-143 tests, no API keys needed, all in-memory.
+158 tests, no API keys needed, all in-memory. 5 skipped on Mac (torch/GPU only).
 
 ---
 
 ## What it predicts
 
-Predicts the **N-day forward return** for SPY, QQQ, VXUS, XSD, XLK. Regression model — not a buy/sell signal.
+Predicts the **N-day forward return** for any tracked symbol (ETF or single stock). Regression model — not a buy/sell signal.
 
-Features:
-- **Price**: momentum (1d/5d/20d/60d), volatility, RSI, MA ratios, volume
-- **Options**: put/call ratio (computed daily from yfinance options chains)
-- **Earnings**: EPS/revenue surprises from SEC EDGAR (top 100 holdings per ETF)
-- **Fed**: FOMC hawkish/dovish keyword score, days since last meeting
-- **Social**: StockTwits bull ratio, Reddit sentiment (opt-in)
-- **News**: Alpha Vantage news sentiment (free tier)
+**30 features per symbol:**
+- **Price**: momentum (1d/5d/20d/60d), volatility (10d/20d), RSI, MA ratios, intraday range, volume ratio
+- **Options**: put/call ratio and volume-to-OI ratio (computed daily from yfinance options chains)
+- **Earnings**: EPS/revenue surprises + days-to-earnings from SEC EDGAR (ETF holdings or direct for single stocks)
+- **Fed**: FOMC hawkish/dovish keyword score + net score + days since last meeting
+- **Social**: StockTwits bull ratio, Reddit sentiment, social volume ratio (opt-in)
+- **News**: Alpha Vantage news sentiment + 5-day change + article count
+
+**Tracked symbols** (in `config/symbols.json`, editable via GUI):
+- ETFs: SPY, QQQ, VXUS, XSD, XLK, XLE
+- Single stocks: add any via the Manage Tickers page
 
 ---
 
