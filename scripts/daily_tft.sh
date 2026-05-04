@@ -56,7 +56,11 @@ ssh "$DGX" "
         2>&1
 " 2>&1 | tee -a "$LOG"
 
-# 3. Sync model checkpoints and prediction JSONs back to Mac
+# 3. Fix ownership of files written by Docker (root inside container → host user)
+echo "[tft] Fixing model file permissions on DGX..." | tee -a "$LOG"
+ssh "$DGX" "docker exec market_mvp chmod -R a+r /workspace/models/ 2>/dev/null || true" 2>&1 | tee -a "$LOG"
+
+# 4. Sync model checkpoints and prediction JSONs back to Mac
 echo "[tft] Syncing models back to Mac..." | tee -a "$LOG"
 rsync -rz --no-perms --no-owner --no-group "$DGX:~/models/" "$MODELS_DIR/" 2>&1 | tee -a "$LOG"
 
