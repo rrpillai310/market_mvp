@@ -1,6 +1,6 @@
 # market_mvp
 
-A hobbyist ML pipeline for SPY/QQQ/VXUS/XSD/XLK: pulls price, options, earnings, Fed minutes, and social sentiment into a DuckDB database, trains a LightGBM model locally and (planned) a Temporal Fusion Transformer on the DGX Spark GPU.
+A hobbyist ML pipeline for SPY/QQQ/VXUS/XSD/XLK: pulls price, options, earnings, Fed minutes, and social sentiment into a DuckDB database, trains a LightGBM model locally and a Temporal Fusion Transformer on the DGX Spark GPU. The Streamlit dashboard shows both model predictions side by side.
 
 ---
 
@@ -98,9 +98,10 @@ cat /Users/rakeshpillai/market_mvp/logs/pipeline_$(date +%Y%m%d).log
 
 ---
 
-## 7. DGX Spark GPU setup (for TFT model training)
+## 7. DGX Spark GPU setup + TFT training
 
 The DGX Spark (NVIDIA GB10 Grace Blackwell, CUDA 13.2, aarch64) runs GPU training via Docker.
+There are no PyTorch CUDA wheels for aarch64 — always use the container.
 
 **One-time setup on DGX (`ssh rrpillai@10.0.0.2`):**
 
@@ -117,9 +118,8 @@ docker run --gpus all -it --name market_mvp \
   nvcr.io/nvidia/pytorch:25.03-py3
 
 # Inside the container:
-cd /workspace/market_mvp
 pip install pytorch-forecasting pytorch-lightning duckdb
-python -c "import torch; print(torch.cuda.is_available())"  # should print True
+python -c "import torch; print(torch.cuda.is_available())"  # must print True
 ```
 
 **Start existing container after reboot:**
@@ -133,6 +133,29 @@ ssh-keygen -t ed25519 -C "dgx-spark" -f ~/.ssh/id_ed25519 -N ""
 cat ~/.ssh/id_ed25519.pub   # paste into github.com → Settings → SSH keys
 git clone git@github.com:rrpillai310/market_mvp.git
 ```
+
+**TFT training workflow (run after each pipeline run):**
+
+```bash
+# 1. Mac Studio — sync DuckDB to DGX
+rsync -avz /Users/rakeshpillai/data/ rrpillai@10.0.0.2:~/data/
+
+# 2. DGX — inside container
+docker start -ai market_mvp
+git -C /workspace/market_mvp pull   # get latest train_dgx.py
+
+# Train all symbols, both horizons
+python /workspace/market_mvp/train_dgx.py --symbols SPY QQQ VXUS XSD XLK --horizons 5 20
+
+# Or a single symbol/horizon
+python /workspace/market_mvp/train_dgx.py --symbol SPY --horizon 5
+
+# 3. Mac Studio — sync models + prediction JSONs back
+rsync -avz rrpillai@10.0.0.2:~/models/ /Users/rakeshpillai/models/
+```
+
+The Streamlit Predictions page shows LightGBM and TFT predictions side by side automatically
+once the `_tft_pred.json` files are synced back. No GPU or PyTorch needed on the Mac.
 
 ---
 

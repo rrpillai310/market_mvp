@@ -13,7 +13,7 @@ Read CLAUDE.md first for architecture context. This file covers agent-specific r
    in `db.py` AND write it from `features.py`. All three or none.
 
 3. **DuckDB is the only persistence layer.** No Redis, no Postgres, no flat files except
-   the model `.pkl`. Keep it that way.
+   model artifacts (`.pkl`, `.ckpt`, `_pred.json`). Keep it that way.
 
 4. **All ingestion is idempotent.** Every `INSERT` uses `INSERT OR REPLACE`.
    Every fetch checks `api_cache` first. Never break this — re-running must be safe.
@@ -71,12 +71,20 @@ Read CLAUDE.md first for architecture context. This file covers agent-specific r
 - Container name is `market_mvp`. Start it with `docker start -ai market_mvp`.
 - The container mounts: `~/market_mvp`, `~/data`, `~/models` — changes inside persist.
 - Always verify GPU access: `python -c "import torch; print(torch.cuda.is_available())"`.
-- Sync data from Mac to DGX before training; sync models back after:
+- Training entry point is `train_dgx.py` at repo root (not inside the package). Run it as
+  `python /workspace/market_mvp/train_dgx.py --symbol SPY --horizon 5`.
+- Outputs per (symbol, horizon):
+  - `{symbol}_h{horizon}_tft.ckpt` — best PyTorch Lightning checkpoint
+  - `{symbol}_h{horizon}_tft_metrics.json` — val loss + training metadata
+  - `{symbol}_h{horizon}_tft_pred.json` — latest prediction (median + p10/p90 quantiles)
+- Sync data from Mac to DGX before training; sync models directory back after:
   ```bash
   rsync -avz /Users/rakeshpillai/data/ rrpillai@10.0.0.2:~/data/
-  # ... train ...
+  # ... train on DGX ...
   rsync -avz rrpillai@10.0.0.2:~/models/ /Users/rakeshpillai/models/
   ```
+- The Mac Streamlit reads only `_tft_pred.json` via `ui_data.predict_tft()` — it does not
+  load the `.ckpt` file and does not require pytorch-forecasting on the Mac.
 
 ### Working with EDGAR
 - SEC requires a descriptive User-Agent header with contact email. It is set in `edgar.py`.
@@ -175,6 +183,12 @@ Read CLAUDE.md first for architecture context. This file covers agent-specific r
   there are no PyTorch CUDA wheels for aarch64. Always use the NGC container.
 - Do not call Ollama extraction functions without `reasoning=False` / `think: False` —
   qwen3.6 runs 40s+ chain-of-thought by default, making extraction impractically slow.
+- Do not load the TFT `.ckpt` file in Streamlit or `ui_data.py` — the Mac has no GPU and
+  loading pytorch-forecasting there adds a heavy optional dependency. Always use the
+  pre-computed `_tft_pred.json` written by `train_dgx.py` on the DGX.
+- Do not change `FEATURE_COLS` in `train_dgx.py` independently of `train.py` — they must
+  stay identical. Both files import from the same logical list; any divergence silently
+  causes the TFT and LightGBM models to train on different feature sets.
 
 ## Key invariants to preserve
 
@@ -183,7 +197,9 @@ Read CLAUDE.md first for architecture context. This file covers agent-specific r
 | All ingestion is idempotent | `INSERT OR REPLACE` everywhere |
 | API responses always cached before parsing | `_cache_get` / `_cache_put` pattern in `ingest.py` |
 | FEATURE_COLS order is stable | Static list in `train.py` — pkl models depend on column order |
+| FEATURE_COLS identical in train.py and train_dgx.py | Must be kept in sync manually |
 | Feature columns filled with 0.0 if absent | `train.py:walk_forward_eval` and `train_final` |
+| TFT predictions served as JSON, not live inference | `ui_data.predict_tft()` reads `_tft_pred.json` |
 | No network in tests | `conftest.py` fixtures + mocking |
 | SEC rate limit respected | `edgar.py:_get()` sleeps 0.12s |
 | Ollama calls have 120s timeout + retries | `llm.py:extract_json` |

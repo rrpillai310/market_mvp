@@ -15,7 +15,7 @@ GPU. No live trading. No external DB. Everything lives in a single DuckDB file.
 market_mvp/          ← Python package (run from parent dir)
   alpha_vantage.py   ← throttled Alpha Vantage HTTP client
   db.py              ← DuckDB schema + connection helper
-  ingest.py          ← AV ingestion: prices, options PCR/VOI, news sentiment
+  ingest.py          ← yfinance ingestion: prices, options PCR/VOI; AV: news sentiment
   edgar.py           ← EDGAR XBRL fast-path: EPS + revenue for top ETF holdings
   fed.py             ← FOMC calendar scraper + hawkish/dovish keyword scoring + LLM
   social.py          ← StockTwits (free API) + Reddit (PRAW) daily sentiment
@@ -27,9 +27,11 @@ market_mvp/          ← Python package (run from parent dir)
   ui_data.py         ← Shared Streamlit data layer (cached queries, model loading)
   tests/             ← pytest suite (no network calls, in-memory DuckDB)
   data/              ← DuckDB file lives here (gitignored)
-  models/            ← Saved .pkl models + metrics JSON (gitignored)
+  models/            ← Saved .pkl + .ckpt models, metrics + prediction JSON (gitignored)
   requirements.txt
   .env.example
+
+train_dgx.py         ← TFT training on DGX Spark GPU (run inside NGC container)
 
 app.py               ← Streamlit home page (pipeline status, model summary cards)
 pages/
@@ -41,21 +43,28 @@ pages/
 ## Data flow
 
 ```
-Alpha Vantage API  ──→  ingest.py  ──→  DuckDB: prices_daily, options_*, news_sentiment
+yfinance           ──→  ingest.py  ──→  DuckDB: prices_daily, options_pcr_daily
+Alpha Vantage API  ──→  ingest.py  ──→  DuckDB: news_sentiment
 EDGAR data.sec.gov ──→  edgar.py   ──→  DuckDB: edgar_earnings, edgar_cik_map
 federalreserve.gov ──→  fed.py     ──→  DuckDB: fed_minutes
 StockTwits / Reddit──→  social.py  ──→  DuckDB: social_sentiment_daily
                                                   │
                                              features.py
                                                   │
-                                          DuckDB: features_daily  (21 feature cols + label)
+                                   DuckDB: features_daily  (30 feature cols + label)
                                                   │
-                                             train.py
-                                                  │
-                                         models/SPY_h5.pkl + SPY_h5_metrics.json
-                                                  │
-                                     ┌────────────┴────────────┐
-                                predict.py  →  CLI output     ui_data.py  →  Streamlit UI
+                          ┌───────────────────────┴────────────────────────┐
+                       train.py (Mac)                            train_dgx.py (DGX GPU)
+                          │                                                 │
+               models/SPY_h5.pkl                          models/SPY_h5_tft.ckpt
+               SPY_h5_metrics.json                        SPY_h5_tft_pred.json
+                          │                                                 │
+                          └───────────────────┬─────────────────────────────┘
+                                         ui_data.py
+                                     predict() / predict_tft()
+                                              │
+                                        Streamlit UI
+                                   (LightGBM + TFT side by side)
 ```
 
 ## Running the pipeline
@@ -147,8 +156,13 @@ docker start -ai market_mvp
 4. `rsync -avz rrpillai@10.0.0.2:~/models/ /Users/rakeshpillai/models/`
 5. Streamlit picks up the new model automatically
 
-The planned GPU model is a **Temporal Fusion Transformer** (pytorch-forecasting).
-LightGBM on Mac Studio remains the production model until TFT is validated.
+The GPU model is a **Temporal Fusion Transformer** (`train_dgx.py`, pytorch-forecasting):
+- 60-day encoder lookback, 80/20 train/val split, QuantileLoss (7 quantiles)
+- Outputs `models/{symbol}_h{horizon}_tft.ckpt` (checkpoint) and `_tft_pred.json` (latest
+  median prediction + 90% CI), which Streamlit reads via `ui_data.predict_tft()`
+- No GPU or PyTorch needed on Mac — Streamlit reads the pre-computed JSON directly
+
+LightGBM on Mac Studio remains the primary production model; TFT runs alongside it.
 
 ## Database schema (key tables)
 
@@ -220,7 +234,9 @@ PYTHONPATH=/Users/rakeshpillai streamlit run /Users/rakeshpillai/market_mvp/app.
 - Model path: `_MODELS_DIR / f"{symbol}_h{horizon}.pkl"` (also one level above repo)
 - Metrics sidecar: `_MODELS_DIR / f"{symbol}_h{horizon}_metrics.json"`
 
-`predict()` in `ui_data.py` calls `load_model()` then scores the latest row from `features_daily`.
+`predict()` calls `load_model()` and scores the latest row from `features_daily` (LightGBM).
+`predict_tft()` reads `models/{symbol}_h{horizon}_tft_pred.json` written by `train_dgx.py` —
+no GPU or pytorch-forecasting install needed on the Mac.
 
 **iOS access:** Open `http://<mac-local-ip>:8501` in Safari on the same Wi-Fi.
 Find your Mac IP with: `ipconfig getifaddr en0`
