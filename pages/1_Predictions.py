@@ -146,3 +146,30 @@ if not latest.empty:
     c2.metric("Fed net score", _fmt(row.get("fed_net_score")))
     c3.metric("StockTwits bull%", _fmt(row.get("stocktwits_bull_ratio"), pct=True))
     c4.metric("Vol ratio 20d", _fmt(row.get("vol_ratio_20d")))
+
+st.divider()
+
+# ── Claude analyst commentary ─────────────────────────────────────────────────
+
+st.subheader("AI analyst commentary")
+
+commentary = d.load_analyst_commentary(symbol, horizon)
+if commentary:
+    st.info(commentary["commentary"])
+
+    signals = commentary.get("signals_used", [])
+    generated = commentary.get("generated_at", "")[:10]
+    caption_parts = []
+    if signals:
+        caption_parts.append(f"Signals queried: {', '.join(signals)}")
+    if generated:
+        caption_parts.append(f"Generated {generated}")
+    if caption_parts:
+        st.caption(" · ".join(caption_parts))
+else:
+    st.caption(
+        "No analyst commentary yet. Run the pipeline with `--analyst` flag "
+        "(requires `LLM_PROVIDER=claude`):\n\n"
+        f"```bash\nLLM_PROVIDER=claude python3 -m market_mvp.pipeline "
+        f"--symbols {symbol} --skip-social --analyst\n```"
+    )

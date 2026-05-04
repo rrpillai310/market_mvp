@@ -42,6 +42,7 @@ def run_pipeline(
     skip_social: bool,
     use_llm_fed: bool,
     news_limit: int,
+    run_analyst: bool = False,
 ) -> None:
     # Sync data and models from S3 before pipeline starts (no-op if S3_BUCKET not set)
     maybe_sync_from_s3(db_path.parent, "data")
@@ -115,6 +116,17 @@ def run_pipeline(
                       f"Dir Acc={res.get('mean_dir_acc', 'N/A'):.3f}  "
                       f"Model={res.get('model_path')}")
 
+    # --- Step 7: Analyst commentary (Claude only, opt-in) ---
+    if run_analyst:
+        from market_mvp.analyst import analyze
+        print("\n=== Step 7: Market analyst commentary (Claude tool-use) ===")
+        for sym in symbols:
+            for h in horizons:
+                print(f"[pipeline] Analyst {sym} h={h}...")
+                result = analyze(sym, h, con, models_dir)
+                if result is None:
+                    print("  Skipped (set LLM_PROVIDER=claude to enable)")
+
     con.close()
     print("\n=== Pipeline complete. ===")
 
@@ -137,6 +149,8 @@ if __name__ == "__main__":
     ap.add_argument("--skip-social", action="store_true")
     ap.add_argument("--use-llm-fed", action="store_true",
                     help="Summarize Fed minutes with LLM (provider set by LLM_PROVIDER env var: ollama or claude)")
+    ap.add_argument("--analyst", action="store_true",
+                    help="Run Claude analyst agent after training (requires LLM_PROVIDER=claude)")
     ap.add_argument("--news-limit", type=int, default=200)
     ns = ap.parse_args()
 
@@ -153,4 +167,5 @@ if __name__ == "__main__":
         skip_social=ns.skip_social,
         use_llm_fed=ns.use_llm_fed,
         news_limit=ns.news_limit,
+        run_analyst=ns.analyst,
     )

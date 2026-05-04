@@ -208,6 +208,15 @@ def predict_tft(symbol: str, horizon: int) -> dict | None:
         return json.load(f)
 
 
+def load_analyst_commentary(symbol: str, horizon: int) -> dict | None:
+    """Load the Claude analyst commentary JSON written by analyst.py."""
+    path = _MODELS_DIR / f"{symbol}_h{horizon}_analyst.json"
+    if not path.exists():
+        return None
+    with open(path) as f:
+        return json.load(f)
+
+
 def predict(symbol: str, horizon: int) -> dict | None:
     bundle = load_model(symbol, horizon)
     if bundle is None:
