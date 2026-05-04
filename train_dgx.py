@@ -217,8 +217,9 @@ def train(symbol: str, horizon: int, max_epochs: int, batch_size: int) -> None:
     with open(MODELS_DIR / f"{ckpt_stem}_metrics.json", "w") as f:
         json.dump(metrics, f, indent=2)
 
-    # Run inference on validation set — take last prediction as "today's" signal
-    _save_prediction(best_ckpt, val_loader, symbol, horizon, df, val_loss)
+    # Run inference on validation set — updates metrics JSON with dir_acc
+    _save_prediction(best_ckpt, val_loader, symbol, horizon, df, val_loss,
+                     metrics_path=MODELS_DIR / f"{ckpt_stem}_metrics.json")
 
 
 def _save_prediction(
@@ -228,6 +229,7 @@ def _save_prediction(
     horizon: int,
     df: pd.DataFrame,
     val_loss: float,
+    metrics_path: Path | None = None,
 ) -> None:
     from pytorch_forecasting import TemporalFusionTransformer
 
@@ -237,10 +239,22 @@ def _save_prediction(
 
         # mode="quantiles" → tensor (N_samples, max_pred_len, n_quantiles)
         quantile_preds = best_tft.predict(val_loader, mode="quantiles")
-        # Take last batch-sample, first (only) prediction step, median quantile (index 3)
-        pred_median = float(quantile_preds[-1, 0, 3].cpu().numpy())
+        pred_medians = quantile_preds[:, 0, 3].cpu().numpy()
+        pred_median = float(pred_medians[-1])
         pred_p10 = float(quantile_preds[-1, 0, 1].cpu().numpy())
         pred_p90 = float(quantile_preds[-1, 0, 5].cpu().numpy())
+
+        # Directional accuracy across all val samples
+        dir_acc = None
+        try:
+            actuals = np.concatenate(
+                [batch[1][0].cpu().numpy() for batch in val_loader]
+            ).flatten()
+            n = min(len(pred_medians), len(actuals))
+            dir_acc = float(np.mean((pred_medians[:n] > 0) == (actuals[:n] > 0)))
+            print(f"[train_dgx] Val dir_acc: {dir_acc:.1%}")
+        except Exception:
+            pass
 
         as_of = str(df.iloc[-1]["date"].date())
         pred_json = {
@@ -251,6 +265,7 @@ def _save_prediction(
             "p10": pred_p10,
             "p90": pred_p90,
             "direction": "UP" if pred_median > 0 else "DOWN",
+            "val_dir_acc": dir_acc,
             "model": "tft",
             "val_loss": val_loss,
             "checkpoint": ckpt_path,
@@ -263,7 +278,17 @@ def _save_prediction(
 
         print(f"[train_dgx] {symbol} h={horizon}: {pred_json['direction']} "
               f"({pred_median:+.4f}, p10={pred_p10:+.4f}, p90={pred_p90:+.4f})")
+        if dir_acc is not None:
+            print(f"[train_dgx] Val dir_acc: {dir_acc:.1%}")
         print(f"[train_dgx] Prediction saved → {pred_path}")
+
+        # Patch dir_acc into the metrics sidecar written by train()
+        if metrics_path and metrics_path.exists() and dir_acc is not None:
+            with open(metrics_path) as f:
+                m = json.load(f)
+            m["val_dir_acc"] = dir_acc
+            with open(metrics_path, "w") as f:
+                json.dump(m, f, indent=2)
 
     except Exception as e:
         print(f"[train_dgx] Inference skipped ({e}) — checkpoint still saved.")

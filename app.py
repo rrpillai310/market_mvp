@@ -14,7 +14,7 @@ st.set_page_config(
 )
 
 st.title("📈 Market MVP")
-st.caption("SPY / QQQ forward-return predictor — powered by LightGBM + DuckDB")
+st.caption("SPY / QQQ / VXUS / XSD / XLK forward-return predictor — LightGBM (Mac) + TFT (DGX Spark GPU)")
 
 st.divider()
 
@@ -68,6 +68,31 @@ if not any_model:
         "No trained models yet. After ingesting data, run:\n\n"
         "```bash\npython3 -m market_mvp.train --symbol SPY --horizon 5\n```"
     )
+
+# ── TFT model status ──────────────────────────────────────────────────────────
+
+st.subheader("TFT models (DGX Spark)")
+
+any_tft = False
+tft_cols = st.columns(len(d.SYMBOLS) * len(d.HORIZONS))
+for i, sym in enumerate(d.SYMBOLS):
+    for j, h in enumerate(d.HORIZONS):
+        col = tft_cols[i * len(d.HORIZONS) + j]
+        tft_m = d.load_tft_metrics(sym, h)
+        if tft_m:
+            any_tft = True
+            dir_acc = tft_m.get("val_dir_acc")
+            val_loss = tft_m.get("val_loss")
+            col.metric(
+                f"{sym} h={h}",
+                f"{dir_acc:.1%} dir acc" if dir_acc else "trained",
+                f"val loss {val_loss:.4f}" if val_loss else None,
+            )
+        else:
+            col.metric(f"{sym} h={h}", "not trained", delta_color="off")
+
+if not any_tft:
+    st.caption("Run `daily_tft.sh` or train on DGX to populate TFT models.")
 
 st.divider()
 

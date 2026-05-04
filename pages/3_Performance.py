@@ -186,3 +186,35 @@ if not feats.empty and bundle is not None:
     st.plotly_chart(fig, width="stretch")
 else:
     st.info("Run the pipeline to generate features and retrain to see this chart.")
+
+# ── TFT metrics ───────────────────────────────────────────────────────────────
+
+tft_m = d.load_tft_metrics(symbol, horizon)
+tft_pred = d.predict_tft(symbol, horizon)
+
+if tft_m:
+    st.divider()
+    st.subheader("TFT model (DGX Spark)")
+
+    t1, t2, t3, t4 = st.columns(4)
+    tft_dir_acc = tft_m.get("val_dir_acc")
+    tft_val_loss = tft_m.get("val_loss")
+    tft_trained = (tft_m.get("trained_at") or "")[:10] or "—"
+
+    t1.metric("Val dir acc", f"{tft_dir_acc:.1%}" if tft_dir_acc else "—",
+              help="Directional accuracy on the held-out 20% validation set")
+    t2.metric("Val loss", f"{tft_val_loss:.5f}" if tft_val_loss else "—",
+              help="QuantileLoss on validation set (lower is better)")
+    t3.metric("Train rows", f"{tft_m.get('train_rows', 0):,}")
+    t4.metric("Trained", tft_trained)
+
+    st.caption(
+        f"Architecture: hidden={tft_m.get('hidden_size', 64)}, "
+        f"encoder={tft_m.get('max_encoder_length', 60)}d lookback, "
+        f"7-quantile QuantileLoss"
+    )
+
+    if tft_pred and tft_dir_acc and mean_dir_acc:
+        diff = tft_dir_acc - mean_dir_acc
+        sign = "+" if diff >= 0 else ""
+        st.caption(f"TFT vs LightGBM dir acc: {sign}{diff:.1%}")

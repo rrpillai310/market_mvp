@@ -112,6 +112,14 @@ def load_metrics(symbol: str, horizon: int) -> dict | None:
         return json.load(f)
 
 
+def load_tft_metrics(symbol: str, horizon: int) -> dict | None:
+    path = _MODELS_DIR / f"{symbol}_h{horizon}_tft_metrics.json"
+    if not path.exists():
+        return None
+    with open(path) as f:
+        return json.load(f)
+
+
 def predict_tft(symbol: str, horizon: int) -> dict | None:
     """Load the latest TFT prediction JSON written by train_dgx.py."""
     path = _MODELS_DIR / f"{symbol}_h{horizon}_tft_pred.json"
