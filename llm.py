@@ -29,7 +29,7 @@ def _ollama_client():
 def _ollama_model(reasoning: bool = False) -> str:
     if reasoning:
         return os.getenv("OLLAMA_MODEL_REASONING", "deepseek-r1:70b")
-    return os.getenv("OLLAMA_MODEL", "qwen2.5:72b")
+    return os.getenv("OLLAMA_MODEL", "qwen3.6:latest")
 
 
 def _ollama_extract_json(

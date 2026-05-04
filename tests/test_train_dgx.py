@@ -119,6 +119,7 @@ def _make_quantile_tensor(median=0.05, p10=-0.02, p90=0.12):
 
 def test_save_prediction_writes_json_file(tmp_path):
     torch = pytest.importorskip("torch")
+    pytest.importorskip("pytorch_forecasting")
     train_dgx.MODELS_DIR = tmp_path
 
     mock_tft = MagicMock()
@@ -139,6 +140,7 @@ def test_save_prediction_writes_json_file(tmp_path):
 
 def test_save_prediction_json_has_required_keys(tmp_path):
     pytest.importorskip("torch")
+    pytest.importorskip("pytorch_forecasting")
     train_dgx.MODELS_DIR = tmp_path
 
     mock_tft = MagicMock()
@@ -161,6 +163,7 @@ def test_save_prediction_json_has_required_keys(tmp_path):
 
 def test_save_prediction_direction_up_for_positive_median(tmp_path):
     pytest.importorskip("torch")
+    pytest.importorskip("pytorch_forecasting")
     train_dgx.MODELS_DIR = tmp_path
 
     mock_tft = MagicMock()
@@ -181,6 +184,7 @@ def test_save_prediction_direction_up_for_positive_median(tmp_path):
 
 def test_save_prediction_direction_down_for_negative_median(tmp_path):
     pytest.importorskip("torch")
+    pytest.importorskip("pytorch_forecasting")
     train_dgx.MODELS_DIR = tmp_path
 
     mock_tft = MagicMock()
@@ -200,6 +204,7 @@ def test_save_prediction_direction_down_for_negative_median(tmp_path):
 
 def test_save_prediction_does_not_crash_on_inference_error(tmp_path):
     pytest.importorskip("torch")
+    pytest.importorskip("pytorch_forecasting")
     train_dgx.MODELS_DIR = tmp_path
 
     df = _make_df(100)
