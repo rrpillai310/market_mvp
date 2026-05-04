@@ -56,12 +56,27 @@ Read CLAUDE.md first for architecture context. This file covers agent-specific r
 
 ### Working with the Ollama LLM
 - All LLM calls go through `llm.py`. Never call `openai.OpenAI()` directly in other modules.
-- Default model: `qwen2.5:72b` (extraction). Reasoning model: `deepseek-r1:70b` (Fed minutes).
-- Always pass `reasoning=True` for Fed/policy analysis tasks.
+- Default model: `qwen3.6:latest` (extraction). Reasoning model: `deepseek-r1:70b` (Fed minutes).
+- Extraction calls use `extra_body={"think": False}` — without this, qwen3.6 does a slow
+  chain-of-thought pass (40s+) before responding. Always pass `reasoning=False` for extraction.
+- Always pass `reasoning=True` for Fed/policy analysis tasks (uses deepseek-r1:70b).
 - LLM features are always optional — every caller must work without LLM output (fall back
   to keyword scoring or None values).
-- The DGX Spark WiFi has high jitter (up to 225ms). `llm.py` handles retries; callers
-  must not add their own retry loops.
+- The DGX Spark is on direct 10GbE Ethernet (`10.0.0.2`). Latency is sub-ms.
+  `llm.py` handles retries; callers must not add their own retry loops.
+
+### Working with the DGX Spark GPU
+- GPU training uses Docker (`nvcr.io/nvidia/pytorch:25.03-py3`). No PyTorch CUDA wheels
+  exist for aarch64 — never attempt `pip install torch` outside the container.
+- Container name is `market_mvp`. Start it with `docker start -ai market_mvp`.
+- The container mounts: `~/market_mvp`, `~/data`, `~/models` — changes inside persist.
+- Always verify GPU access: `python -c "import torch; print(torch.cuda.is_available())"`.
+- Sync data from Mac to DGX before training; sync models back after:
+  ```bash
+  rsync -avz /Users/rakeshpillai/data/ rrpillai@10.0.0.2:~/data/
+  # ... train ...
+  rsync -avz rrpillai@10.0.0.2:~/models/ /Users/rakeshpillai/models/
+  ```
 
 ### Working with EDGAR
 - SEC requires a descriptive User-Agent header with contact email. It is set in `edgar.py`.
@@ -146,7 +161,8 @@ Read CLAUDE.md first for architecture context. This file covers agent-specific r
 - Do not serialize LightGBM feature importances as `np.int32` to JSON — cast to `float()`
   before writing metrics JSON (numpy integers are not JSON-serializable).
 - Do not use `TIME_SERIES_DAILY_ADJUSTED` or options endpoints from Alpha Vantage — they
-  are premium-only. Price data comes from yfinance; options will come from CBOE.
+  are premium-only. Price data comes from yfinance; options PCR is computed from yfinance
+  options chains daily.
 - Do not hardcode paths assuming the DB is inside the repo. The DB and models live one
   level above: `Path(__file__).parent.parent / "data"` and `/ "models"`.
 - Do not run the pipeline while Streamlit is running — DuckDB allows only one writer.
@@ -155,6 +171,10 @@ Read CLAUDE.md first for architecture context. This file covers agent-specific r
   Match by URL pattern (regex on href) instead — URL schemes change far less often.
 - Always set `PYTHONPATH=/Users/rakeshpillai` when running Streamlit or the pipeline from
   a shell that hasn't sourced `~/.zshrc`.
+- Do not attempt `pip install torch` or `conda install pytorch` on the DGX outside Docker —
+  there are no PyTorch CUDA wheels for aarch64. Always use the NGC container.
+- Do not call Ollama extraction functions without `reasoning=False` / `think: False` —
+  qwen3.6 runs 40s+ chain-of-thought by default, making extraction impractically slow.
 
 ## Key invariants to preserve
 

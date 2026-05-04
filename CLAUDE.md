@@ -5,9 +5,9 @@ Project context for Claude Code. Read this before touching any file.
 ## What this is
 
 A hobbyist ML pipeline that turns price, options, earnings, Fed minutes, and social
-sentiment into daily features for SPY/QQQ, then trains a walk-forward LightGBM model
-to predict N-day forward returns. No live trading. No external DB. Everything lives in
-a single DuckDB file.
+sentiment into daily features for SPY/QQQ/VXUS/XSD/XLK, trains a walk-forward LightGBM
+model on the Mac Studio, and (in progress) a Temporal Fusion Transformer on the DGX Spark
+GPU. No live trading. No external DB. Everything lives in a single DuckDB file.
 
 ## Repo layout
 
@@ -91,8 +91,8 @@ Copy `.env.example` to `.env` and fill in:
 | Variable | Required | Default | Notes |
 |---|---|---|---|
 | `ALPHAVANTAGE_API_KEY` | Yes | — | Free tier: 25 req/day |
-| `OLLAMA_HOST` | No | `http://spark-1dca.local:11434` | DGX Spark on local WiFi |
-| `OLLAMA_MODEL` | No | `qwen2.5:72b` | For JSON extraction tasks |
+| `OLLAMA_HOST` | No | `http://10.0.0.2:11434` | DGX Spark via direct 10GbE Ethernet |
+| `OLLAMA_MODEL` | No | `qwen3.6:latest` | For JSON extraction (fast, no chain-of-thought) |
 | `OLLAMA_MODEL_REASONING` | No | `deepseek-r1:70b` | For Fed minutes analysis |
 | `REDDIT_CLIENT_ID` | No | — | Free app at reddit.com/prefs/apps |
 | `REDDIT_CLIENT_SECRET` | No | — | |
@@ -100,15 +100,55 @@ Copy `.env.example` to `.env` and fill in:
 
 ## DGX Spark / Ollama
 
-The project uses a local DGX Spark connected via direct 10GbE Ethernet at `10.0.0.2`.
-Sub-millisecond latency. The Ollama client in `llm.py` uses:
+The project uses a local DGX Spark (NVIDIA GB10 Grace Blackwell, CUDA 13.2, aarch64)
+connected via direct 10GbE Ethernet at `10.0.0.2`. Sub-millisecond latency.
+
+The Ollama client in `llm.py` uses:
 - 120s timeout on all requests
 - Exponential backoff retry (up to 3 attempts)
-- `qwen3.6:latest` for structured JSON extraction (36B, faster than qwen2.5:72b)
-- `deepseek-r1:70b` for Fed minutes (chain-of-thought reasoning)
+- `qwen3.6:latest` for structured JSON extraction — `think: False` via `extra_body` disables
+  chain-of-thought for instant responses (without this, extraction takes 40s+)
+- `deepseek-r1:70b` for Fed minutes (chain-of-thought reasoning, `think: True`)
 
 If the DGX is offline, set `OLLAMA_HOST` to any other Ollama instance.
 EDGAR and Fed keyword scoring work fully offline.
+
+## DGX Spark GPU training (Docker)
+
+The DGX runs GPU model training inside an NVIDIA NGC PyTorch container.
+There are no pre-built PyTorch CUDA wheels for aarch64 — **always use the container**.
+
+**One-time setup (`ssh rrpillai@10.0.0.2`):**
+```bash
+sudo usermod -aG docker rrpillai
+newgrp docker
+
+# Pull NVIDIA PyTorch container (~20GB)
+docker run --gpus all -it --name market_mvp \
+  -v ~/market_mvp:/workspace/market_mvp \
+  -v ~/data:/workspace/data \
+  -v ~/models:/workspace/models \
+  nvcr.io/nvidia/pytorch:25.03-py3
+
+# Inside the container — install ML deps:
+pip install pytorch-forecasting pytorch-lightning duckdb
+python -c "import torch; print(torch.cuda.is_available())"  # must print True
+```
+
+**Start existing container after DGX reboot:**
+```bash
+docker start -ai market_mvp
+```
+
+**GPU training workflow:**
+1. Mac Studio: run pipeline to update `features_daily` in DuckDB
+2. `rsync -avz /Users/rakeshpillai/data/ rrpillai@10.0.0.2:~/data/`
+3. DGX (inside container): `python /workspace/market_mvp/train_dgx.py --symbol SPY`
+4. `rsync -avz rrpillai@10.0.0.2:~/models/ /Users/rakeshpillai/models/`
+5. Streamlit picks up the new model automatically
+
+The planned GPU model is a **Temporal Fusion Transformer** (pytorch-forecasting).
+LightGBM on Mac Studio remains the production model until TFT is validated.
 
 ## Database schema (key tables)
 

@@ -1,10 +1,10 @@
 # market_mvp
 
-A hobbyist ML pipeline for SPY/QQQ: pulls price, options, earnings, Fed minutes, and social sentiment into a DuckDB database, then trains a LightGBM model to predict forward returns.
+A hobbyist ML pipeline for SPY/QQQ/VXUS/XSD/XLK: pulls price, options, earnings, Fed minutes, and social sentiment into a DuckDB database, trains a LightGBM model locally and (planned) a Temporal Fusion Transformer on the DGX Spark GPU.
 
 ---
 
-## 1. Install dependencies
+## 1. Install dependencies (Mac Studio)
 
 ```bash
 pip install -r requirements.txt
@@ -19,29 +19,22 @@ brew install libomp
 
 ## 2. Add your API keys
 
-Copy the example env file and fill in your keys:
 ```bash
 cp .env.example .env
 ```
 
-Then open `.env` and set the values:
-
 | Key | Required | How to get it |
 |---|---|---|
 | `ALPHAVANTAGE_API_KEY` | **Yes** | Free at [alphavantage.co](https://www.alphavantage.co/support/#api-key) |
-| `REDDIT_CLIENT_ID` | No (social only) | Create a free app at [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) — requires API registration |
-| `REDDIT_CLIENT_SECRET` | No (social only) | Same app page as above |
-| `OLLAMA_HOST` | No | Defaults to `http://10.0.0.2:11434` — change to your Ollama host |
-| `OLLAMA_MODEL` | No | Defaults to `qwen3.6:latest` (extraction) |
+| `REDDIT_CLIENT_ID` | No | [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) — requires API registration |
+| `REDDIT_CLIENT_SECRET` | No | Same app page |
+| `OLLAMA_HOST` | No | Defaults to `http://10.0.0.2:11434` (DGX Spark direct Ethernet) |
+| `OLLAMA_MODEL` | No | Defaults to `qwen3.6:latest` |
 | `OLLAMA_MODEL_REASONING` | No | Defaults to `deepseek-r1:70b` (Fed minutes) |
-
-> The pipeline works without Reddit and Ollama. Those features are opt-in.
 
 ---
 
-## 3. Set up PYTHONPATH
-
-The pipeline runs from the **parent folder** of the repo. Add this to `~/.zshrc` once so imports always resolve:
+## 3. Set up PYTHONPATH (Mac Studio)
 
 ```bash
 echo 'export PYTHONPATH=/Users/rakeshpillai:$PYTHONPATH' >> ~/.zshrc
@@ -50,83 +43,100 @@ source ~/.zshrc
 
 ---
 
-## 4. Run the pipeline
+## 4. Run the pipeline (Mac Studio)
 
-Run all commands from the **parent folder** of this repo:
+Stop Streamlit first if it's running — DuckDB allows only one writer at a time.
 
 ```bash
 cd /Users/rakeshpillai
 
-# Full pipeline (ingest → EDGAR → Fed → features → train)
-python3 -m market_mvp.pipeline --symbols SPY QQQ
+# Full pipeline
+python3 -m market_mvp.pipeline --symbols SPY QQQ VXUS XSD XLK --skip-social
 
-# Skip social (Reddit/StockTwits) if you haven't set Reddit credentials
-python3 -m market_mvp.pipeline --symbols SPY QQQ --skip-social
+# With Fed LLM analysis
+python3 -m market_mvp.pipeline --symbols SPY QQQ VXUS XSD XLK --skip-social --use-llm-fed
 
-# Add Fed minutes analysis via Ollama (uses deepseek-r1:70b)
-python3 -m market_mvp.pipeline --symbols SPY QQQ --skip-social --use-llm-fed
+# EDGAR + features + train only (skip ingestion)
+python3 -m market_mvp.pipeline --symbols SPY QQQ VXUS XSD XLK --skip-social --skip-news --skip-options --skip-fed
 
-# Rerun just EDGAR + features + train (after expanding holdings list)
-python3 -m market_mvp.pipeline --symbols SPY QQQ --skip-social --skip-news --skip-options --skip-fed
-
-# Get a prediction after training
+# CLI prediction
 python3 -m market_mvp.predict --symbol SPY --horizon 5
 ```
 
-Data is written to `../data/market_mvp.duckdb` and models to `../models/` (one level above the repo).
+Data: `../data/market_mvp.duckdb` — Models: `../models/`
 
 ---
 
-## 5. Run individual steps
-
-```bash
-cd /Users/rakeshpillai
-
-# 1. Fetch prices via yfinance + news sentiment via Alpha Vantage
-python3 -m market_mvp.ingest --symbols SPY QQQ
-
-# 2. Fetch earnings from SEC EDGAR (free, no key — top 100 holdings per ETF)
-python3 -m market_mvp.edgar --etf SPY QQQ
-
-# 3. Fetch Fed FOMC minutes (add --use-llm for Ollama summary)
-python3 -m market_mvp.fed
-
-# 4. Fetch StockTwits + Reddit sentiment
-python3 -m market_mvp.social --symbols SPY QQQ
-
-# 5. Build feature table
-python3 -m market_mvp.features --symbols SPY QQQ --horizons 5 20
-
-# 6. Train and evaluate
-python3 -m market_mvp.train --symbol SPY --horizon 5
-python3 -m market_mvp.train --symbol QQQ --horizon 5
-```
-
----
-
-## 6. Open the dashboard
+## 5. Open the dashboard (Mac Studio)
 
 ```bash
 PYTHONPATH=/Users/rakeshpillai /opt/anaconda3/bin/streamlit run /Users/rakeshpillai/market_mvp/app.py
 ```
 
-This starts a local server at `http://localhost:8501`. Open that URL in any browser.
+Opens at `http://localhost:8501`. Also accessible remotely via **Tailscale** at `http://<tailscale-mac-ip>:8501`.
 
-> **Note:** Stop Streamlit before running the pipeline (Ctrl+C), then restart it after. DuckDB only allows one writer at a time.
+**iPhone / iPad (same Wi-Fi):** `ipconfig getifaddr en0` → open `http://<mac-ip>:8501` in Safari.
 
-**Access from iPhone / iPad on the same Wi-Fi:**
-1. Find your Mac's local IP: `ipconfig getifaddr en0`
-2. Open `http://<mac-ip>:8501` in Safari
+> Stop Streamlit before running the pipeline. Restart it after.
 
 ---
 
-## Important: pipeline and dashboard can't run at the same time
+## 6. Daily automated pipeline
 
-DuckDB only allows one writer at a time. Stop Streamlit (Ctrl+C) before running the pipeline, then restart it after.
+A launchd job runs the pipeline every day at 7am automatically:
+
+```bash
+# Loaded via:
+launchctl load ~/Library/LaunchAgents/com.market_mvp.daily.plist
+
+# Run manually:
+/Users/rakeshpillai/market_mvp/scripts/daily_pipeline.sh
+
+# Check logs:
+cat /Users/rakeshpillai/market_mvp/logs/pipeline_$(date +%Y%m%d).log
+```
 
 ---
 
-## 7. Run tests
+## 7. DGX Spark GPU setup (for TFT model training)
+
+The DGX Spark (NVIDIA GB10 Grace Blackwell, CUDA 13.2, aarch64) runs GPU training via Docker.
+
+**One-time setup on DGX (`ssh rrpillai@10.0.0.2`):**
+
+```bash
+# Add user to docker group
+sudo usermod -aG docker rrpillai
+newgrp docker
+
+# Pull NVIDIA PyTorch container (~20GB, one-time)
+docker run --gpus all -it --name market_mvp \
+  -v ~/market_mvp:/workspace/market_mvp \
+  -v ~/data:/workspace/data \
+  -v ~/models:/workspace/models \
+  nvcr.io/nvidia/pytorch:25.03-py3
+
+# Inside the container:
+cd /workspace/market_mvp
+pip install pytorch-forecasting pytorch-lightning duckdb
+python -c "import torch; print(torch.cuda.is_available())"  # should print True
+```
+
+**Start existing container after reboot:**
+```bash
+docker start -ai market_mvp
+```
+
+**SSH key for GitHub (run on DGX):**
+```bash
+ssh-keygen -t ed25519 -C "dgx-spark" -f ~/.ssh/id_ed25519 -N ""
+cat ~/.ssh/id_ed25519.pub   # paste into github.com → Settings → SSH keys
+git clone git@github.com:rrpillai310/market_mvp.git
+```
+
+---
+
+## 8. Run tests
 
 ```bash
 cd /Users/rakeshpillai/market_mvp
@@ -139,22 +149,35 @@ pytest tests/ -v
 
 ## What it predicts
 
-The model predicts the **N-day forward return** for SPY or QQQ. It is a regression model, not a buy/sell signal. Features include:
+Predicts the **N-day forward return** for SPY, QQQ, VXUS, XSD, XLK. Regression model — not a buy/sell signal.
 
-- **Price**: momentum (1d/5d/20d/60d), volatility, RSI, moving average ratios, volume
-- **Options**: put/call ratio, volume-to-OI ratio (premium AV endpoint — zeros until CBOE scraper is added)
-- **Earnings**: EPS and revenue surprises from SEC EDGAR (top 100 holdings per ETF)
+Features:
+- **Price**: momentum (1d/5d/20d/60d), volatility, RSI, MA ratios, volume
+- **Options**: put/call ratio (computed daily from yfinance options chains)
+- **Earnings**: EPS/revenue surprises from SEC EDGAR (top 100 holdings per ETF)
 - **Fed**: FOMC hawkish/dovish keyword score, days since last meeting
-- **Social**: StockTwits bull ratio, Reddit sentiment (opt-in, requires Reddit API registration)
-- **News**: Alpha Vantage news sentiment score (free tier)
+- **Social**: StockTwits bull ratio, Reddit sentiment (opt-in)
+- **News**: Alpha Vantage news sentiment (free tier)
+
+---
+
+## Hardware setup
+
+| Component | Detail |
+|---|---|
+| Mac Studio | Pipeline orchestration, Streamlit UI, Ollama client |
+| DGX Spark | NVIDIA GB10 Grace Blackwell, CUDA 13.2, GPU model training |
+| Connection | Direct 10GbE Ethernet (Mac `10.0.0.1` ↔ DGX `10.0.0.2`) |
+| Ollama | `qwen3.6:latest` (extraction), `deepseek-r1:70b` (reasoning) |
+| Remote access | Tailscale for dashboard access outside home network |
 
 ---
 
 ## Notes
 
-- Price data comes from **yfinance** (free, no key, proper adjusted closes)
-- All data lives in `../data/market_mvp.duckdb` relative to the repo — re-running is always safe
-- Models are saved to `../models/` as `.pkl` + `_metrics.json` pairs
-- Alpha Vantage free tier: 25 requests/day — used only for news sentiment
-- EDGAR is fully free with no meaningful rate limits
-- Ollama runs on DGX Spark via direct 10GbE Ethernet at `10.0.0.2` (sub-ms latency)
+- Price data: **yfinance** (free, no key, proper adjusted closes)
+- DB: `../data/market_mvp.duckdb` — always safe to rerun pipeline
+- Models: `../models/` as `.pkl` + `_metrics.json`
+- Alpha Vantage free tier: 25 req/day — used only for news sentiment
+- EDGAR: fully free, no rate limits worth worrying about
+- DGX Spark connected via direct Ethernet — sub-ms Ollama latency
