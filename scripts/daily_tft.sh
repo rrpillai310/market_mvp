@@ -43,7 +43,8 @@ fi
 
 # 1. Sync DuckDB to DGX
 echo "[tft] Syncing data to DGX ($(du -sh "$DATA_DIR" | cut -f1))..." | tee -a "$LOG"
-rsync -az "$DATA_DIR/" "$DGX:~/data/" 2>&1 | tee -a "$LOG"
+ssh "$DGX" "mkdir -p ~/data ~/models" 2>&1 | tee -a "$LOG"
+rsync -rz --no-perms --no-owner --no-group "$DATA_DIR/" "$DGX:~/data/" 2>&1 | tee -a "$LOG"
 
 # 2. Pull latest code on DGX then train all symbols/horizons
 echo "[tft] Starting GPU training on DGX..." | tee -a "$LOG"
@@ -57,6 +58,6 @@ ssh "$DGX" "
 
 # 3. Sync model checkpoints and prediction JSONs back to Mac
 echo "[tft] Syncing models back to Mac..." | tee -a "$LOG"
-rsync -az "$DGX:~/models/" "$MODELS_DIR/" 2>&1 | tee -a "$LOG"
+rsync -rz --no-perms --no-owner --no-group "$DGX:~/models/" "$MODELS_DIR/" 2>&1 | tee -a "$LOG"
 
 echo "=== TFT training done: $(date) ===" | tee -a "$LOG"
