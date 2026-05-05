@@ -97,6 +97,33 @@ def ingest_options_pcr_yf(con, symbol: str) -> None:
     )
 
 
+def ingest_options_voi_yf(con, symbol: str) -> None:
+    """Compute today's volume-to-open-interest ratio from yfinance options chains."""
+    import yfinance as yf
+    from datetime import date as date_type
+    ticker = yf.Ticker(symbol)
+    expirations = ticker.options
+    if not expirations:
+        return
+    total_volume = total_oi = 0
+    for exp in expirations[:6]:
+        try:
+            chain = ticker.option_chain(exp)
+            for leg in (chain.calls, chain.puts):
+                total_volume += leg["volume"].fillna(0).sum()
+                total_oi += leg["openInterest"].fillna(0).sum()
+        except Exception:
+            continue
+    if total_oi == 0:
+        return
+    voi = float(total_volume) / float(total_oi)
+    today = str(date_type.today())
+    con.execute(
+        "INSERT OR REPLACE INTO options_voi_daily(symbol, date, volume_oi_ratio) VALUES (?, ?, ?)",
+        (symbol, today, voi),
+    )
+
+
 def ingest_options_pcr(con, av: AlphaVantageClient, symbol: str) -> None:
     # Historical put/call ratio endpoint (Options Data APIs).
     endpoint = "HISTORICAL_PUT_CALL_RATIO"
