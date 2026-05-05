@@ -236,10 +236,13 @@ def analyze(
 ) -> dict | None:
     """Run the Claude analyst agent for one symbol/horizon.
 
-    Returns the commentary dict and writes it to models_dir.
-    Returns None if LLM_PROVIDER != 'claude' or on any error.
+    Always uses the Claude SDK (Anthropic tool use). LLM_PROVIDER controls
+    the extraction calls in llm.py independently — set LLM_PROVIDER=ollama
+    for Fed/extraction and still use Claude here by setting ANTHROPIC_API_KEY.
+    Returns None if ANTHROPIC_API_KEY is missing or on any error.
     """
-    if os.getenv("LLM_PROVIDER", "ollama").lower() != "claude":
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        print("[analyst] ANTHROPIC_API_KEY not set — skipping analyst commentary")
         return None
 
     try:

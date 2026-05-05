@@ -10,16 +10,25 @@ import pytest
 from market_mvp.analyst import _build_tools, analyze
 
 
-# ── analyze() gating ─────────────────────────────────────────────────────────
+# ── analyze() gating — requires ANTHROPIC_API_KEY, not LLM_PROVIDER ──────────
 
-def test_analyze_returns_none_when_provider_is_ollama(monkeypatch, con, tmp_path):
+def test_analyze_returns_none_when_api_key_missing(monkeypatch, con, tmp_path):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert analyze("SPY", 5, con, tmp_path) is None
+
+
+def test_analyze_runs_when_provider_is_ollama_but_key_is_set(monkeypatch, tmp_path, loaded_features):
+    """LLM_PROVIDER=ollama should not block the analyst — it uses Claude independently."""
     monkeypatch.setenv("LLM_PROVIDER", "ollama")
-    assert analyze("SPY", 5, con, tmp_path) is None
-
-
-def test_analyze_returns_none_when_provider_not_set(monkeypatch, con, tmp_path):
-    monkeypatch.delenv("LLM_PROVIDER", raising=False)
-    assert analyze("SPY", 5, con, tmp_path) is None
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _make_response(
+        "end_turn", [_make_text_block("Neutral outlook.")]
+    )
+    with patch("anthropic.Anthropic", return_value=mock_client):
+        result = analyze("SPY", 5, loaded_features, tmp_path)
+    assert result is not None
+    assert result["commentary"] == "Neutral outlook."
 
 
 # ── Tool implementations ──────────────────────────────────────────────────────
@@ -118,6 +127,7 @@ def _make_response(stop_reason: str, content: list):
 
 def test_analyze_runs_loop_and_writes_json(monkeypatch, tmp_path, loaded_features):
     monkeypatch.setenv("LLM_PROVIDER", "claude")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
 
     commentary_text = "SPY outlook is cautiously bullish. Models agree on +1.8% over 5 days."
 
@@ -146,6 +156,7 @@ def test_analyze_runs_loop_and_writes_json(monkeypatch, tmp_path, loaded_feature
 
 def test_analyze_calls_multiple_tools_before_commentary(monkeypatch, tmp_path, loaded_features):
     monkeypatch.setenv("LLM_PROVIDER", "claude")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
 
     tool_call_1 = _make_tool_use_block("get_prediction", "tu_001", {})
     tool_call_2 = _make_tool_use_block("get_fed_score", "tu_002", {})
@@ -167,6 +178,7 @@ def test_analyze_calls_multiple_tools_before_commentary(monkeypatch, tmp_path, l
 
 def test_analyze_returns_none_on_claude_error(monkeypatch, tmp_path, con):
     monkeypatch.setenv("LLM_PROVIDER", "claude")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
 
     mock_client = MagicMock()
     mock_client.messages.create.side_effect = Exception("API unavailable")
@@ -180,6 +192,7 @@ def test_analyze_returns_none_on_claude_error(monkeypatch, tmp_path, con):
 
 def test_analyze_deduplicates_signals_used(monkeypatch, tmp_path, loaded_features):
     monkeypatch.setenv("LLM_PROVIDER", "claude")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
 
     # Claude calls get_features twice
     tool_call_1 = _make_tool_use_block("get_features", "tu_001", {})
