@@ -76,6 +76,25 @@ python3 -m market_mvp.pipeline --symbols SPY QQQ VXUS XSD XLK --skip-social --sk
 python3 -m market_mvp.predict --symbol SPY --horizon 5
 ```
 
+### On-demand Claude analyst commentary
+
+After the pipeline has run, call the analyst agent independently for any symbol — no retraining needed. Reads the existing DB and model outputs, writes `{symbol}_h{horizon}_analyst.json` to the models directory (Streamlit picks it up automatically on the Predictions page).
+
+```bash
+# Set your Anthropic key first (one-time):
+# console.anthropic.com → API Keys → copy key → add to .env:
+#   ANTHROPIC_API_KEY=sk-ant-...
+
+# Single symbol, default horizons (5 and 20 days)
+python3 -m market_mvp.analyst --symbols SPY
+
+# Multiple symbols
+python3 -m market_mvp.analyst --symbols SPY QQQ NVDA
+
+# Specific horizon only
+python3 -m market_mvp.analyst --symbols SPY --horizons 5
+```
+
 Data: `../data/market_mvp.duckdb` — Models: `../models/`
 
 ---
@@ -247,7 +266,7 @@ cd /Users/rakeshpillai/market_mvp
 pytest tests/ -v
 ```
 
-158 tests, no API keys needed, all in-memory. 5 skipped on Mac (torch/GPU only).
+180 tests, no API keys needed, all in-memory. 5 skipped on Mac (torch/GPU only).
 
 ---
 
