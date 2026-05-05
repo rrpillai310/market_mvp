@@ -10,6 +10,7 @@ Output: {symbol}_h{horizon}_analyst.json in models_dir.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 from datetime import datetime, timezone
@@ -323,3 +324,43 @@ def analyze(
     out_path.write_text(json.dumps(output, indent=2))
     print(f"[analyst] {symbol} h={horizon}: {commentary[:100]}...")
     return output
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Run Claude analyst agent for one or more symbols.")
+    ap.add_argument("--symbols", nargs="+", required=True)
+    ap.add_argument("--horizons", nargs="+", type=int, default=[5, 20])
+    ap.add_argument("--db", default=None, help="Path to DuckDB file (default: auto from DATA_DIR)")
+    ap.add_argument("--models-dir", default=None, help="Models directory (default: auto from MODELS_DIR)")
+    ns = ap.parse_args()
+
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
+    from market_mvp.db import DB, init_db
+    from market_mvp.storage import get_data_dir, get_models_dir
+
+    db_path = Path(ns.db) if ns.db else get_data_dir() / "market_mvp.duckdb"
+    models_dir = Path(ns.models_dir) if ns.models_dir else get_models_dir()
+
+    db = DB(path=db_path)
+    con = db.connect()
+    init_db(con)
+
+    for sym in ns.symbols:
+        for h in ns.horizons:
+            print(f"\n[analyst] {sym} h={h}...")
+            result = analyze(sym, h, con, models_dir)
+            if result is None:
+                print(f"  Skipped (set ANTHROPIC_API_KEY to enable)")
+            else:
+                print(f"  Done → {models_dir / f'{sym}_h{h}_analyst.json'}")
+
+    con.close()
+
+
+if __name__ == "__main__":
+    main()
