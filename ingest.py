@@ -35,7 +35,7 @@ def _cache_put(con, *, provider: str, endpoint: str, symbol: str | None, params:
     )
 
 
-def ingest_daily_adjusted(con, av: AlphaVantageClient, symbol: str) -> None:
+def ingest_daily_adjusted(con, symbol: str) -> None:
     import yfinance as yf
     ticker = yf.Ticker(symbol)
     raw = ticker.history(period="max", auto_adjust=False, actions=True)
@@ -261,7 +261,7 @@ def main():
 
     for sym in ns.symbols:
         print(f"[ingest] {sym}: prices...")
-        ingest_daily_adjusted(con, av, sym)
+        ingest_daily_adjusted(con, sym)
         if not ns.skip_options:
             print(f"[ingest] {sym}: options PCR...")
             ingest_options_pcr(con, av, sym)

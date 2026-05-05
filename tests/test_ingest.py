@@ -81,7 +81,7 @@ def _patch_yfinance(history_df):
 def test_ingest_daily_adjusted_writes_prices(con):
     df = _make_yf_history(["2024-01-02", "2024-01-03"], [403.0, 406.0])
     with _patch_yfinance(df):
-        ingest_daily_adjusted(con, None, "SPY")
+        ingest_daily_adjusted(con, "SPY")
     count = con.execute("SELECT COUNT(*) FROM prices_daily WHERE symbol='SPY'").fetchone()[0]
     assert count == 2
 
@@ -89,8 +89,8 @@ def test_ingest_daily_adjusted_writes_prices(con):
 def test_ingest_daily_adjusted_is_idempotent(con):
     df = _make_yf_history(["2024-01-02"], [403.0])
     with _patch_yfinance(df):
-        ingest_daily_adjusted(con, None, "SPY")
-        ingest_daily_adjusted(con, None, "SPY")
+        ingest_daily_adjusted(con, "SPY")
+        ingest_daily_adjusted(con, "SPY")
     count = con.execute("SELECT COUNT(*) FROM prices_daily WHERE symbol='SPY'").fetchone()[0]
     assert count == 1
 

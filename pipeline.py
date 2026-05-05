@@ -52,13 +52,14 @@ def run_pipeline(
     con = db.connect()
     init_db(con)
 
-    av = AlphaVantageClient(throttle_secs=throttle_secs)
-
     # --- Step 1: Alpha Vantage ingestion ---
+    # av is only created if news ingestion is needed — avoids key validation when --skip-news
+    av = None if skip_news else AlphaVantageClient(throttle_secs=throttle_secs)
+
     print("\n=== Step 1: Alpha Vantage ingestion ===")
     for sym in symbols:
         print(f"\n[pipeline] {sym}: prices...")
-        ingest_daily_adjusted(con, av, sym)
+        ingest_daily_adjusted(con, sym)
         if not skip_options:
             print(f"[pipeline] {sym}: options PCR (yfinance)...")
             try:
