@@ -1,7 +1,4 @@
 [server]
-# Extend ping timeout to avoid disconnects during heavy model inference
 maxMessageSize = 200
 enableWebsocketCompression = false
-
-[browser]
-serverTimeout = 120
+maxUploadSize = 200
