@@ -34,11 +34,25 @@ if ! ssh -o ConnectTimeout=10 -o BatchMode=yes "$DGX" true 2>/dev/null; then
     exit 0
 fi
 
-# Verify the container is running
-if ! ssh "$DGX" "docker ps -q -f name=market_mvp | grep -q ." 2>/dev/null; then
-    echo "[tft] Container 'market_mvp' not running on DGX." | tee -a "$LOG"
-    echo "[tft] Run the one-time setup in this script's header comment to fix this." | tee -a "$LOG"
-    exit 1
+# Verify the container is running — try to start it up to 3 times if stopped
+_container_running() {
+    ssh "$DGX" "docker ps -q -f name=market_mvp | grep -q ." 2>/dev/null
+}
+if ! _container_running; then
+    echo "[tft] Container 'market_mvp' not running — attempting to start..." | tee -a "$LOG"
+    for attempt in 1 2 3; do
+        ssh "$DGX" "docker start market_mvp" 2>&1 | tee -a "$LOG"
+        sleep 5
+        if _container_running; then
+            echo "[tft] Container started on attempt $attempt." | tee -a "$LOG"
+            break
+        fi
+        echo "[tft] Attempt $attempt failed." | tee -a "$LOG"
+        if [ "$attempt" -eq 3 ]; then
+            echo "[tft] Container could not be started after 3 attempts — skipping TFT." | tee -a "$LOG"
+            exit 0
+        fi
+    done
 fi
 
 # 1. Sync DuckDB to DGX
