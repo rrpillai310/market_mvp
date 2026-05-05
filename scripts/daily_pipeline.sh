@@ -16,12 +16,14 @@ mkdir -p "$LOG_DIR"
 # Always restart Streamlit on exit, even if the pipeline errors.
 _restart_streamlit() {
     echo "[cron] Restarting Streamlit..." | tee -a "$LOG"
-    PYTHONPATH="$PARENT" "$PYTHON" -m streamlit run "$REPO/app.py" \
+    nohup env PYTHONPATH="$PARENT" "$PYTHON" -m streamlit run "$REPO/app.py" \
         --server.port 8501 \
         --server.headless true \
         >> "$LOG_DIR/streamlit.log" 2>&1 &
-    echo $! > "$STREAMLIT_PID_FILE"
-    echo "[cron] Streamlit started (PID $(cat "$STREAMLIT_PID_FILE"))" | tee -a "$LOG"
+    local pid=$!
+    disown "$pid"
+    echo "$pid" > "$STREAMLIT_PID_FILE"
+    echo "[cron] Streamlit started (PID $pid)" | tee -a "$LOG"
 }
 trap _restart_streamlit EXIT
 
