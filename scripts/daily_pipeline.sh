@@ -16,8 +16,17 @@ echo "=== Daily pipeline started: $(date) ===" | tee -a "$LOG"
 
 # Stop Streamlit if running — kill all streamlit processes to release DB lock
 echo "[cron] Stopping Streamlit..." | tee -a "$LOG"
-pkill -f "streamlit run" 2>/dev/null || true
-sleep 5  # Wait for DuckDB lock to release
+pkill -f "streamlit" 2>/dev/null || true
+sleep 2
+pkill -9 -f "streamlit" 2>/dev/null || true  # Force-kill any stragglers
+
+# Wait until DuckDB lock file is gone (up to 30s)
+DB_LOCK="/Users/rakeshpillai/data/market_mvp.duckdb.lock"
+for i in $(seq 1 15); do
+    [ ! -f "$DB_LOCK" ] && break
+    echo "[cron] Waiting for DuckDB lock to release ($i/15)..." | tee -a "$LOG"
+    sleep 2
+done
 
 # Read symbols from config (falls back to SPY QQQ if config is missing or python fails)
 SYMBOLS=$(python3 -c "import json,pathlib; c=json.loads(pathlib.Path('/Users/rakeshpillai/market_mvp/config/symbols.json').read_text()); print(' '.join(s['ticker'] for s in c['symbols']))" 2>/dev/null || echo "SPY QQQ")
