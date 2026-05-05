@@ -97,7 +97,7 @@ if folds:
         show_df = fold_df[["fold", "train_rows", "test_rows", "train_end_date", "rmse", "dir_acc"]].copy()
         show_df["dir_acc"] = show_df["dir_acc"].map("{:.1%}".format)
         show_df["rmse"] = show_df["rmse"].map("{:.5f}".format)
-        st.dataframe(show_df, use_container_width=True, hide_index=True)
+        st.dataframe(show_df, width="stretch", hide_index=True)
 
     st.divider()
 

@@ -52,7 +52,7 @@ def predict_latest(con, symbol: str, horizon: int, models_dir: Path) -> dict:
         if c not in df.columns:
             df[c] = 0.0
 
-    X = df[feature_cols].ffill().fillna(0.0).to_numpy()
+    X = df[feature_cols].ffill().fillna(0.0)
     pred = float(model.predict(X)[0])
 
     direction = "UP" if pred > 0 else "DOWN"
