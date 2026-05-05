@@ -150,9 +150,9 @@ if not feats.empty and bundle is not None:
         if c not in feats.columns:
             feats[c] = 0.0
 
-    X = feats[feature_cols].ffill().fillna(0.0).to_numpy()
+    X = feats[feature_cols].ffill().fillna(0.0)
     preds = bundle["model"].predict(X)
-    actuals = feats["y_fwd_return"].to_numpy()
+    actuals = feats["y_fwd_return"].to_numpy(dtype=float)
 
     # Colour by correctness of direction
     correct = [(a > 0) == (p > 0) for a, p in zip(actuals, preds)]
