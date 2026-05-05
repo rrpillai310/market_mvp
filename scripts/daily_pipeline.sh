@@ -2,15 +2,28 @@
 # Daily market_mvp pipeline — runs ingestion, rebuilds features, retrains models.
 # Designed to run at 7am ET via launchd. Stops Streamlit, runs pipeline, restarts.
 
-set -e
+set -eo pipefail
 
 REPO="/Users/rakeshpillai/market_mvp"
 PARENT="/Users/rakeshpillai"
 LOG_DIR="$REPO/logs"
 LOG="$LOG_DIR/pipeline_$(date +%Y%m%d).log"
 STREAMLIT_PID_FILE="$LOG_DIR/streamlit.pid"
+PYTHON="/opt/homebrew/opt/python@3.14/bin/python3.14"
 
 mkdir -p "$LOG_DIR"
+
+# Always restart Streamlit on exit, even if the pipeline errors.
+_restart_streamlit() {
+    echo "[cron] Restarting Streamlit..." | tee -a "$LOG"
+    PYTHONPATH="$PARENT" "$PYTHON" -m streamlit run "$REPO/app.py" \
+        --server.port 8501 \
+        --server.headless true \
+        >> "$LOG_DIR/streamlit.log" 2>&1 &
+    echo $! > "$STREAMLIT_PID_FILE"
+    echo "[cron] Streamlit started (PID $(cat "$STREAMLIT_PID_FILE"))" | tee -a "$LOG"
+}
+trap _restart_streamlit EXIT
 
 echo "=== Daily pipeline started: $(date) ===" | tee -a "$LOG"
 
@@ -48,13 +61,5 @@ echo "[cron] Starting TFT training in background..." | tee -a "$LOG"
 bash "$REPO/scripts/daily_tft.sh" >> "$LOG_DIR/tft_$(date +%Y%m%d).log" 2>&1 &
 echo "[cron] TFT PID: $!" | tee -a "$LOG"
 
-# Restart Streamlit in background
-echo "[cron] Restarting Streamlit..." | tee -a "$LOG"
-PYTHONPATH="$PARENT" /opt/anaconda3/bin/streamlit run "$REPO/app.py" \
-    --server.port 8501 \
-    --server.headless true \
-    >> "$LOG_DIR/streamlit.log" 2>&1 &
-echo $! > "$STREAMLIT_PID_FILE"
-echo "[cron] Streamlit started (PID $(cat $STREAMLIT_PID_FILE))" | tee -a "$LOG"
-
 echo "=== Done: $(date) ===" | tee -a "$LOG"
+# trap _restart_streamlit fires here on EXIT
